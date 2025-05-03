@@ -1,5 +1,5 @@
 from pathlib import Path
-from pipeline.ingestion.sources.ix.article import Article, ArticleEncoder, ArticleDecoder
+from scrappers.ix.article import Article, ArticleEncoder, ArticleDecoder
 import json
 
 

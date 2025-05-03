@@ -17,21 +17,26 @@ import signal
 import re
 import base64
 from typing import List, Tuple, Set
-
+import logging
+import traceback
 from .article import Article, ArticleEncoder, ArticleDecoder
-from .config import Config
-from ....setup.logging import getLogger
+from .config import Settings
+
+logging.basicConfig(
+    level=logging.INFO,
+    style='{',
+    format='{asctime} - {levelname} - {message}',
+)
+
+logger = logging.getLogger("ix.scrapper")
 
 
-logger = getLogger("ix.scrapper")
-
-
-class ArchiveScraper:
+class IXScraper:
     """Scraper for the ix archive."""
     class _DriverContext:
         """Context manager for webdriver management."""
 
-        def __init__(self, scraper: 'ArchiveScraper'):
+        def __init__(self, scraper: 'IXScraper'):
             self.scraper = scraper
             self.driver = None
 
@@ -46,7 +51,7 @@ class ArchiveScraper:
                 await self.scraper._driver_queue.put(self.driver)
                 self.driver = None
 
-    def __init__(self, config: Config = Config()):
+    def __init__(self, config: Settings = Settings()):
         self._config = config
         self._semaphore = Semaphore(config.max_concurrent)
         self._connector = TCPConnector(limit=config.max_concurrent)
@@ -58,13 +63,19 @@ class ArchiveScraper:
         self._shutdown_event = Event()
         self._running_tasks: Set[asyncio.Task] = set()
 
+        logger.info(f"Using config: {self._config.model_dump_json(indent=2)}")
+
         self._lookup_registry: tuple[Article, ...] = ()
         if (self._config.output_dir / 'articles.json').exists():
             try:
                 with open(self._config.output_dir / 'articles.json', 'r') as f:
                     self._lookup_registry = tuple(el["article"] for el in json.load(f, cls=ArticleDecoder)["articles"])
+                logger.info(f"Loaded lookup registry with {len(self._lookup_registry)} articles")
+                logger.info(f"Lookup registry head: {self._lookup_registry[0] if self._lookup_registry else None}")
             except Exception as e:
                 logger.error(f"Failed to load lookup registry: {e}")
+        else:
+            logger.info("Lookup registry not found")
 
         try:
             self._loop = asyncio.get_event_loop()
@@ -380,17 +391,12 @@ class ArchiveScraper:
         """
         try:
             reference_article = self._lookup_article(article.issue_year, article.issue_number, article.id)
-
             if reference_article is not None and len(reference_article.files) == 0:
                 raise ValueError("No export formats specified")
 
-            if all([
-                not self._config.overwrite,
-                reference_article is not None,
-                *[
-                    (self._config.output_dir / path).exists()
-                    for path in reference_article.files
-                ],
+            if not self._config.overwrite and reference_article is not None and all([
+                (self._config.output_dir / path).exists()
+                for path in getattr(reference_article, "files", [])
             ]):
                 return reference_article, False
 
@@ -466,7 +472,9 @@ class ArchiveScraper:
             logger.error(f"Timeout while processing article {article.id}: {e}")
             raise
         except Exception as e:
+            trace = traceback.format_exc()
             logger.error(f"Failed to capture article {article.id}: {str(e)}")
+            logger.error(trace)
             raise
 
     async def _fetch_links(self, session: ClientSession, url: str, class_name: str) -> List[str]:
@@ -592,7 +600,9 @@ class ArchiveScraper:
 
                 if not self._shutdown_event.is_set():
                     self._lookup_registry = tuple(el["article"] for el in processed_articles)
-                    with open(self._config.output_dir / 'articles.json', 'w') as f:
+                    path = self._config.output_dir / 'articles.json'
+                    path.rename(path.with_suffix(".json.bak"))
+                    with open(path, 'w') as f:
                         json.dump({"articles": processed_articles}, f, indent=2, cls=ArticleEncoder)
         finally:
             await self._cleanup()
