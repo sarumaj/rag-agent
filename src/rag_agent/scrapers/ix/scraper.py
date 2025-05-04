@@ -1,17 +1,5 @@
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
 import asyncio
-from aiohttp import ClientSession, ClientTimeout, TCPConnector
-from bs4 import BeautifulSoup
 from asyncio import Semaphore, Queue, create_task, gather, Event
-from concurrent.futures import ThreadPoolExecutor
-from tqdm import tqdm
-from selenium.common.exceptions import TimeoutException
 import json
 import signal
 import re
@@ -19,8 +7,44 @@ import base64
 from typing import List, Tuple, Set
 import logging
 import traceback
+from aiohttp import ClientSession, ClientTimeout, TCPConnector
+from bs4 import BeautifulSoup
+from concurrent.futures import ThreadPoolExecutor
+from tqdm import tqdm
+import sys
+
 from .article import Article, ArticleEncoder, ArticleDecoder
 from .config import Settings
+
+try:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.common.exceptions import TimeoutException
+    from webdriver_manager.chrome import ChromeDriverManager
+except ImportError:
+    def raise_import_error():
+        sys.stderr.write(
+            "Selenium dependencies are not installed. "
+            "Please install them using: pip install 'rag-agent[scraper]'\n"
+        )
+        sys.exit(1)
+
+    def exception_hook(exc_type, exc_value, exc_traceback):
+        if isinstance(exc_value, AttributeError):
+            raise_import_error()
+        else:
+            sys.__excepthook__(exc_type, exc_value, exc_traceback)
+
+    sys.excepthook = exception_hook
+    globals().update(dict.fromkeys(
+        ["webdriver", "Options", "Service", "By", "WebDriverWait", "EC", "TimeoutException", "ChromeDriverManager"],
+        lambda *_, **__: raise_import_error()
+    ))
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -53,12 +77,12 @@ class IXScraper:
 
     def __init__(self, config: Settings = Settings()):
         self._config = config
-        self._semaphore = Semaphore(config.max_concurrent)
-        self._connector = TCPConnector(limit=config.max_concurrent)
-        self._timeout = ClientTimeout(total=config.timeout)
-        self._config.output_dir.mkdir(exist_ok=True, parents=True)
+        self._semaphore = Semaphore(self._config.ix_scrapper_max_concurrent)
+        self._connector = TCPConnector(limit=self._config.ix_scrapper_max_concurrent)
+        self._timeout = ClientTimeout(total=self._config.ix_scrapper_timeout)
+        self._config.ix_scrapper_output_dir.mkdir(exist_ok=True, parents=True)
         self._driver_queue = Queue()
-        self._thread_pool = ThreadPoolExecutor(max_workers=config.max_threads)
+        self._thread_pool = ThreadPoolExecutor(max_workers=self._config.ix_scrapper_max_threads)
         self._service = Service(ChromeDriverManager().install())
         self._shutdown_event = Event()
         self._running_tasks: Set[asyncio.Task] = set()
@@ -66,9 +90,9 @@ class IXScraper:
         logger.info(f"Using config: {self._config.model_dump_json(indent=2)}")
 
         self._lookup_registry: tuple[Article, ...] = ()
-        if (self._config.output_dir / 'articles.json').exists():
+        if (path := (self._config.ix_scrapper_output_dir / 'articles.json')).exists():
             try:
-                with open(self._config.output_dir / 'articles.json', 'r') as f:
+                with open(path, 'r') as f:
                     self._lookup_registry = tuple(el["article"] for el in json.load(f, cls=ArticleDecoder)["articles"])
                 logger.info(f"Loaded lookup registry with {len(self._lookup_registry)} articles")
                 logger.info(f"Lookup registry head: {self._lookup_registry[0] if self._lookup_registry else None}")
@@ -91,10 +115,11 @@ class IXScraper:
 
         Raises:
             WebDriverException: If there's an issue creating the driver
+            ImportError: If selenium dependencies are not installed
         """
         try:
             options = Options()
-            for option in self._config.webdriver_options:
+            for option in self._config.ix_scrapper_webdriver_options:
                 options.add_argument(option)
 
             return webdriver.Chrome(service=self._service, options=options)
@@ -105,18 +130,18 @@ class IXScraper:
     def _login_driver_sync(self, driver: webdriver.Chrome) -> bool:
         """Synchronous login for a single driver. Returns True if successful."""
         try:
-            driver.get(self._config.sign_in_url)
+            driver.get(self._config.ix_scrapper_sign_in_url)
 
-            wait = WebDriverWait(driver, self._config.timeout)
+            wait = WebDriverWait(driver, self._config.ix_scrapper_timeout)
             username_field = wait.until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "input#login-user"))
             )
-            username_field.send_keys(self._config.username)
+            username_field.send_keys(self._config.ix_scrapper_username)
 
             password_field = wait.until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "input#login-password"))
             )
-            password_field.send_keys(self._config.password)
+            password_field.send_keys(self._config.ix_scrapper_password)
 
             submit_button = wait.until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']"))
@@ -132,7 +157,7 @@ class IXScraper:
                     return False
 
             except TimeoutException:
-                wait.until(lambda driver: driver.current_url != self._config.sign_in_url)
+                wait.until(lambda driver: driver.current_url != self._config.ix_scrapper_sign_in_url)
                 return True
 
         except Exception as e:
@@ -143,12 +168,12 @@ class IXScraper:
         """Initialize a pool of drivers."""
         drivers = []
         try:
-            drivers = [self._setup_driver() for _ in range(self._config.max_threads)]
+            drivers = [self._setup_driver() for _ in range(self._config.ix_scrapper_max_threads)]
             successful_logins = 0
             with tqdm(total=len(drivers), desc="Initializing drivers") as pbar:
                 async def login_with_progress(driver):
                     nonlocal successful_logins
-                    for attempt in range(self._config.retry_attempts):
+                    for attempt in range(self._config.ix_scrapper_retry_attempts):
                         success = await self._loop.run_in_executor(
                             self._thread_pool,
                             self._login_driver_sync,
@@ -390,19 +415,29 @@ class IXScraper:
             OSError: If there's an issue writing files
         """
         try:
-            reference_article = self._lookup_article(article.issue_year, article.issue_number, article.id)
-            if reference_article is not None and len(reference_article.files) == 0:
-                raise ValueError("No export formats specified")
+            reference_article = None
+            if not self._config.ix_scrapper_overwrite:
+                reference_article = self._lookup_article(article.issue_year, article.issue_number, article.id)
+                if reference_article is not None and len(reference_article.export_formats) == 0:
+                    raise ValueError("No export formats specified")
 
-            if not self._config.overwrite and reference_article is not None and all([
-                (self._config.output_dir / path).exists()
-                for path in getattr(reference_article, "files", [])
-            ]):
-                return reference_article, False
+                logger.debug(
+                    f"Found reference article: {reference_article} for {article}" if reference_article
+                    else f"No reference article found for {article}"
+                )
+
+                if reference_article is not None and all([
+                    (self._config.ix_scrapper_output_dir / path).exists()
+                    for path in getattr(reference_article, "files", [])
+                ]) and all([
+                    export_format in reference_article.export_formats
+                    for export_format in self._config.ix_scrapper_export_formats
+                ]):
+                    return reference_article, False
 
             driver.get(article.url)
 
-            WebDriverWait(driver, self._config.timeout).until(
+            WebDriverWait(driver, self._config.ix_scrapper_timeout).until(
                 EC.presence_of_element_located((By.TAG_NAME, "main"))
             )
 
@@ -416,29 +451,11 @@ class IXScraper:
             article.page = str(article_data.get('page', ''))
 
             output_path_base = (
-                self._config.output_dir /
+                self._config.ix_scrapper_output_dir /
                 article.issue_year /
                 article.issue_number /
                 f"{article.page or article.id or '0'}.ext"
             )
-
-            article.files = [
-                output_path_base.with_suffix(export_format.extension).relative_to(self._config.output_dir)
-                for export_format in self._config.export_formats
-            ]
-
-            if len(article.files) == 0:
-                raise ValueError("No export formats specified")
-
-            if all([
-                not self._config.overwrite,
-                *[
-                    output_path_base.with_suffix(export_format.extension).exists()
-                    for export_format in self._config.export_formats
-                ]
-            ]):
-                logger.info(f"Article {article.id} already exists, skipping")
-                return article, False
 
             self._prepare_document(driver)
 
@@ -448,13 +465,24 @@ class IXScraper:
                 logger.error(f"Failed to create directory {output_path_base.parent}: {e}")
                 raise
 
-            for export_format in self._config.export_formats:
+            for export_format in self._config.ix_scrapper_export_formats:
+                target_path = output_path_base.with_suffix(export_format.extension)
+                article.files.append(target_path)
+                if (
+                    not self._config.ix_scrapper_overwrite and
+                    target_path.exists()
+                ):
+                    logger.debug(
+                        f"Skipping {export_format.extension} for article {article} "
+                        "because it already exists"
+                    )
+                    continue
+
                 try:
                     result = driver.execute_cdp_cmd(cmd=export_format.command, cmd_args=export_format.options)
                     data = base64.b64decode(result['data']) if export_format.base64encoded else result['data']
                     kwargs = {'mode': 'wb'} if isinstance(data, bytes) else {'mode': 'w', 'encoding': 'utf-8'}
 
-                    target_path = output_path_base.with_suffix(export_format.extension)
                     try:
                         with open(file=target_path, **kwargs) as target:
                             target.write(data)
@@ -466,7 +494,7 @@ class IXScraper:
                     logger.error(f"Failed to export {export_format.extension} for article {article.id}: {e}")
                     raise
 
-            return article, True
+            return article, len(article.files) > 0
 
         except TimeoutException as e:
             logger.error(f"Timeout while processing article {article.id}: {e}")
@@ -542,7 +570,7 @@ class IXScraper:
                 pbar = tqdm(desc="Fetching archive structure")
                 issues_links = await self._fetch_links(
                     session,
-                    url=self._config.archive_url,
+                    url=self._config.ix_scrapper_archive_url,
                     class_name="archive__years__link"
                 )
                 pbar.close()
@@ -600,8 +628,9 @@ class IXScraper:
 
                 if not self._shutdown_event.is_set():
                     self._lookup_registry = tuple(el["article"] for el in processed_articles)
-                    path = self._config.output_dir / 'articles.json'
-                    path.rename(path.with_suffix(".json.bak"))
+                    path = self._config.ix_scrapper_output_dir / 'articles.json'
+                    if path.exists():
+                        path.rename(path.with_suffix(".json.bak"))
                     with open(path, 'w') as f:
                         json.dump({"articles": processed_articles}, f, indent=2, cls=ArticleEncoder)
         finally:
@@ -621,7 +650,7 @@ class IXScraper:
                 )
                 for issue_link in await self._fetch_links(
                     session,
-                    url=f"{self._config.base_url}{issues_link}",
+                    url=f"{self._config.ix_scrapper_base_url}{issues_link}",
                     class_name="archive__year__link"
                 )
             ]) for article in articles
@@ -636,7 +665,7 @@ class IXScraper:
         articles = []
         for link in await self._fetch_links(
             session,
-            url=f"{self._config.base_url}{issue_link}",
+            url=f"{self._config.ix_scrapper_base_url}{issue_link}",
             class_name="share-link share-link--read"
         ):
             parts = re.split(r"\D+/", link)[-1].rsplit("/", 2)
@@ -649,7 +678,7 @@ class IXScraper:
                 id=article_id,
                 issue_year=issue_year,
                 issue_number=issue_number,
-                url=f"{self._config.base_url}{link}",
+                url=f"{self._config.ix_scrapper_base_url}{link}",
             ))
 
         return articles
@@ -658,10 +687,13 @@ class IXScraper:
         """Run the scraper."""
         try:
             await self._process_archive()
-        except asyncio.CancelledError:
-            logger.info("Received shutdown signal, cleaning up...")
+        finally:
             await self._cleanup()
-        except Exception as e:
-            logger.error(f"Error during scraping: {e}")
-            await self._cleanup()
-            raise
+
+    async def __aenter__(self):
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit."""
+        self._thread_pool.shutdown(wait=True)
