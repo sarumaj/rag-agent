@@ -98,6 +98,7 @@ class IXScraper:
         self._service = Service(ChromeDriverManager().install())
         self._shutdown_event = Event()
         self._running_tasks: Set[asyncio.Task] = set()
+        self._file_lock = asyncio.Lock()
 
         logger.info(f"Using config: {self._config.model_dump_json(indent=2)}")
 
@@ -432,9 +433,10 @@ class IXScraper:
                 reference_article = self._lookup_article(article.issue_year, article.issue_number, article.id)
                 if (
                     reference_article is not None and
-                    len(reference_article.export_formats) + len(reference_article.files) == 0
+                    len(reference_article.export_formats) * len(reference_article.files) == 0
                 ):
-                    raise ValueError("No export formats specified")
+                    logger.warning("No export formats specified for reference article")
+                    reference_article = None
 
                 logger.debug(
                     f"Found reference article: {reference_article} for {article}" if reference_article
@@ -461,9 +463,16 @@ class IXScraper:
                 return window.articleData || {};
             """)
 
-            article.issue_name = str(article_data.get('issueName', ''))
-            article.title = str(article_data.get('title', ''))
-            article.page = str(article_data.get('page', ''))
+            # Validate extracted data
+            if not article_data:
+                logger.warning(f"No article data found for {article}")
+            else:
+                try:
+                    article.issue_name = str(article_data["issueName"])
+                    article.title = str(article_data["title"])
+                    article.page = str(article_data["page"])
+                except KeyError as e:
+                    logger.warning(f"Missing key {e} in article data for {article}, article data: {article_data}")
 
             output_path_base = (
                 self._config.ix_scraper_output_dir /
@@ -507,14 +516,14 @@ class IXScraper:
                         raise
 
                 except Exception as e:
-                    logger.error(f"Failed to export {export_format.extension} for article {article.id}: {e}")
-                    raise
+                    logger.warning(f"Failed to export {export_format.extension} for article {article.id}: {e}")
+                    continue
 
                 else:
                     article.files.append(target_path)
                     article.export_formats.append(export_format)
 
-            return article, len(article.files) > 0
+            return article, len(article.files) * len(article.export_formats) > 0
 
         except TimeoutException as e:
             logger.error(f"Timeout while processing article {article.id}: {e}")
@@ -582,6 +591,15 @@ class IXScraper:
 
             articles_to_process = []
             processed_articles = []
+            path = self._config.ix_scraper_output_dir / 'articles.json'
+            if path.exists():
+                suffix = 0
+                while True:
+                    if not (new_path := path.with_suffix(f".json.bak{suffix if suffix > 0 else ''}")).exists():
+                        path.rename(new_path)
+                        break
+                    suffix += 1
+
             async with ClientSession(
                 connector=self._connector,
                 timeout=self._timeout,
@@ -631,28 +649,30 @@ class IXScraper:
                         )
                         self._running_tasks.add(task)
 
-                        def callback(task: asyncio.Task):
+                        async def callback(task: asyncio.Task):
                             self._running_tasks.discard(task)
                             pbar.update(1)
+                            try:
+                                article, processed = task.result()
+                                async with self._file_lock:
+                                    processed_articles.append({
+                                        "article": article,
+                                        "processed": processed
+                                    })
+                                    with open(path, 'w') as f:
+                                        json.dump({"articles": processed_articles}, f, indent=2, cls=ArticleEncoder)
+                            except Exception as e:
+                                logger.error(f"Failed to update articles.json: {e}")
 
-                        task.add_done_callback(callback)
+                        task.add_done_callback(lambda t: asyncio.create_task(callback(t)))
                         tasks.append(task)
 
                     if tasks:
-                        processed_articles.extend([
-                            {
-                                "article": article,
-                                "processed": processed
-                            } for article, processed in await gather(*tasks)
-                        ])
+                        await gather(*tasks)
 
                 if not self._shutdown_event.is_set():
                     self._lookup_registry = tuple(el["article"] for el in processed_articles)
-                    path = self._config.ix_scraper_output_dir / 'articles.json'
-                    if path.exists():
-                        path.rename(path.with_suffix(".json.bak"))
-                    with open(path, 'w') as f:
-                        json.dump({"articles": processed_articles}, f, indent=2, cls=ArticleEncoder)
+
         finally:
             await self._cleanup()
 
