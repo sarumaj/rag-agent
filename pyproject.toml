@@ -11,7 +11,7 @@ authors = [
     { name="Dawid Ciepiela", email="71898979+sarumaj@users.noreply.github.com" }
 ]
 readme = "README.md"
-license_files = ["LICENSE"]
+license = { text = "MIT" }
 classifiers = [
     "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",

@@ -1,8 +1,16 @@
 from pathlib import Path
-from scrapers.ix.article import Article, ArticleEncoder, ArticleDecoder
-from scrapers.ix.config import ExportFormat
 import json
 import pytest
+
+try:
+    from scrapers.ix.article import Article, ArticleEncoder, ArticleDecoder
+    from scrapers.ix.config import ExportFormat
+    from scrapers.ix.scraper import SCRAPER_AVAILABLE
+except (ModuleNotFoundError, ImportError) as e:
+    pytest.skip(reason=str(e), allow_module_level=True)
+else:
+    if SCRAPER_AVAILABLE is not True:
+        pytest.skip(reason="scraper dependencies are not installed", allow_module_level=True)
 
 
 def test_article_creation():

@@ -9,7 +9,7 @@ from pipeline.pipeline import OllamaLLM
 from pipeline.pipeline import HuggingFaceEndpoint
 from pipeline.pipeline import StateGraph
 from pipeline.pipeline import RAGPipeline
-from pipeline.config import Settings, PDF_SOURCE, MHTML_SOURCE, TXT_SOURCE
+from pipeline.config import Settings, TXT_SOURCE
 
 
 @pytest.fixture(params=[
@@ -40,7 +40,7 @@ def mock_settings(llm_provider):
         "pipeline_k": 3,
         "pipeline_llm_provider": llm_provider,
         "pipeline_llm_model": "llama2" if llm_provider == "ollama" else "test-model",
-        "pipeline_llm_model_kwargs": {}
+        "pipeline_llm_model_kwargs": {},
     }
 
     if llm_provider == "huggingface":

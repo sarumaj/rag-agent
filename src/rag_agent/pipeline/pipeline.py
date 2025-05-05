@@ -1,4 +1,4 @@
-from typing import List, TypedDict, Dict, Any
+from typing import List, TypedDict, Dict, Any, Optional
 import logging
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
@@ -37,16 +37,13 @@ logger = logging.getLogger("rag_pipeline")
 class RAGPipeline:
     """RAG pipeline implementation using LangChain."""
 
-    def __init__(
-        self,
-        config: Settings = Settings()
-    ):
+    def __init__(self, config: Optional[Settings] = None):
         """Initialize the RAG pipeline.
 
         Args:
             config: Optional configuration object. If not provided, defaults will be used.
         """
-        self._config = config
+        self._config = config or Settings()
         logger.info(f"Initializing RAG pipeline with config: {self._config.model_dump_json(indent=2)}")
         self._thread_pool = ThreadPoolExecutor(max_workers=self._config.pipeline_max_threads)
 

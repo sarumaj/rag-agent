@@ -4,14 +4,13 @@ import json
 import signal
 import re
 import base64
-from typing import List, Tuple, Set
+from typing import List, Tuple, Set, Optional
 import logging
 import traceback
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
-import sys
 
 from .article import Article, ArticleEncoder, ArticleDecoder
 from .config import Settings
@@ -25,24 +24,37 @@ try:
     from selenium.webdriver.support import expected_conditions as EC
     from selenium.common.exceptions import TimeoutException
     from webdriver_manager.chrome import ChromeDriverManager
+    from selenium.webdriver.chrome.webdriver import WebDriver
+    SCRAPER_AVAILABLE = True
 except ImportError:
-    def raise_import_error():
-        sys.stderr.write(
-            "Selenium dependencies are not installed. "
-            "Please install them using: pip install 'rag-agent[scraper]'\n"
-        )
-        sys.exit(1)
+    SCRAPER_AVAILABLE = False
 
-    def exception_hook(exc_type, exc_value, exc_traceback):
-        if isinstance(exc_value, AttributeError):
-            raise_import_error()
-        else:
-            sys.__excepthook__(exc_type, exc_value, exc_traceback)
+    class NotImported:
+        def __getattr__(self, item):
+            raise ModuleNotFoundError(
+                "Selenium dependencies are not installed. "
+                "Please install them using: pip install 'rag-agent[scraper]'"
+            )
 
-    sys.excepthook = exception_hook
+        def __call__(self, *args, **kwargs):
+            raise ModuleNotFoundError(
+                "Selenium dependencies are not installed. "
+                "Please install them using: pip install 'rag-agent[scraper]'"
+            )
+
     globals().update(dict.fromkeys(
-        ["webdriver", "Options", "Service", "By", "WebDriverWait", "EC", "TimeoutException", "ChromeDriverManager"],
-        lambda *_, **__: raise_import_error()
+        [
+            "webdriver",
+            "Options",
+            "Service",
+            "By",
+            "WebDriverWait",
+            "EC",
+            "TimeoutException",
+            "ChromeDriverManager",
+            "WebDriver",
+        ],
+        NotImported()
     ))
 
 
@@ -75,14 +87,14 @@ class IXScraper:
                 await self.scraper._driver_queue.put(self.driver)
                 self.driver = None
 
-    def __init__(self, config: Settings = Settings()):
-        self._config = config
-        self._semaphore = Semaphore(self._config.ix_scrapper_max_concurrent)
-        self._connector = TCPConnector(limit=self._config.ix_scrapper_max_concurrent)
-        self._timeout = ClientTimeout(total=self._config.ix_scrapper_timeout)
-        self._config.ix_scrapper_output_dir.mkdir(exist_ok=True, parents=True)
+    def __init__(self, config: Optional[Settings] = None):
+        self._config = config or Settings()
+        self._semaphore = Semaphore(self._config.ix_scraper_max_concurrent)
+        self._connector = TCPConnector(limit=self._config.ix_scraper_max_concurrent)
+        self._timeout = ClientTimeout(total=self._config.ix_scraper_timeout)
+        self._config.ix_scraper_output_dir.mkdir(exist_ok=True, parents=True)
         self._driver_queue = Queue()
-        self._thread_pool = ThreadPoolExecutor(max_workers=self._config.ix_scrapper_max_threads)
+        self._thread_pool = ThreadPoolExecutor(max_workers=self._config.ix_scraper_max_threads)
         self._service = Service(ChromeDriverManager().install())
         self._shutdown_event = Event()
         self._running_tasks: Set[asyncio.Task] = set()
@@ -90,7 +102,7 @@ class IXScraper:
         logger.info(f"Using config: {self._config.model_dump_json(indent=2)}")
 
         self._lookup_registry: tuple[Article, ...] = ()
-        if (path := (self._config.ix_scrapper_output_dir / 'articles.json')).exists():
+        if (path := (self._config.ix_scraper_output_dir / 'articles.json')).exists():
             try:
                 with open(path, 'r') as f:
                     self._lookup_registry = tuple(el["article"] for el in json.load(f, cls=ArticleDecoder)["articles"])
@@ -107,11 +119,11 @@ class IXScraper:
             self._loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self._loop)
 
-    def _setup_driver(self) -> webdriver.Chrome:
+    def _setup_driver(self) -> WebDriver:
         """Setup Chrome driver with options.
 
         Returns:
-            webdriver.Chrome: A configured Chrome webdriver instance
+            WebDriver: A configured Chrome webdriver instance
 
         Raises:
             WebDriverException: If there's an issue creating the driver
@@ -119,7 +131,7 @@ class IXScraper:
         """
         try:
             options = Options()
-            for option in self._config.ix_scrapper_webdriver_options:
+            for option in self._config.ix_scraper_webdriver_options:
                 options.add_argument(option)
 
             return webdriver.Chrome(service=self._service, options=options)
@@ -130,18 +142,18 @@ class IXScraper:
     def _login_driver_sync(self, driver: webdriver.Chrome) -> bool:
         """Synchronous login for a single driver. Returns True if successful."""
         try:
-            driver.get(self._config.ix_scrapper_sign_in_url)
+            driver.get(self._config.ix_scraper_sign_in_url)
 
-            wait = WebDriverWait(driver, self._config.ix_scrapper_timeout)
+            wait = WebDriverWait(driver, self._config.ix_scraper_timeout)
             username_field = wait.until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "input#login-user"))
             )
-            username_field.send_keys(self._config.ix_scrapper_username)
+            username_field.send_keys(self._config.ix_scraper_username)
 
             password_field = wait.until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "input#login-password"))
             )
-            password_field.send_keys(self._config.ix_scrapper_password)
+            password_field.send_keys(self._config.ix_scraper_password)
 
             submit_button = wait.until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']"))
@@ -157,7 +169,7 @@ class IXScraper:
                     return False
 
             except TimeoutException:
-                wait.until(lambda driver: driver.current_url != self._config.ix_scrapper_sign_in_url)
+                wait.until(lambda driver: driver.current_url != self._config.ix_scraper_sign_in_url)
                 return True
 
         except Exception as e:
@@ -168,12 +180,12 @@ class IXScraper:
         """Initialize a pool of drivers."""
         drivers = []
         try:
-            drivers = [self._setup_driver() for _ in range(self._config.ix_scrapper_max_threads)]
+            drivers = [self._setup_driver() for _ in range(self._config.ix_scraper_max_threads)]
             successful_logins = 0
             with tqdm(total=len(drivers), desc="Initializing drivers") as pbar:
                 async def login_with_progress(driver):
                     nonlocal successful_logins
-                    for attempt in range(self._config.ix_scrapper_retry_attempts):
+                    for attempt in range(self._config.ix_scraper_retry_attempts):
                         success = await self._loop.run_in_executor(
                             self._thread_pool,
                             self._login_driver_sync,
@@ -416,9 +428,12 @@ class IXScraper:
         """
         try:
             reference_article = None
-            if not self._config.ix_scrapper_overwrite:
+            if not self._config.ix_scraper_overwrite:
                 reference_article = self._lookup_article(article.issue_year, article.issue_number, article.id)
-                if reference_article is not None and len(reference_article.export_formats) == 0:
+                if (
+                    reference_article is not None and
+                    len(reference_article.export_formats) + len(reference_article.files) == 0
+                ):
                     raise ValueError("No export formats specified")
 
                 logger.debug(
@@ -427,17 +442,17 @@ class IXScraper:
                 )
 
                 if reference_article is not None and all([
-                    (self._config.ix_scrapper_output_dir / path).exists()
+                    (self._config.ix_scraper_output_dir / path).exists()
                     for path in getattr(reference_article, "files", [])
                 ]) and all([
                     export_format in reference_article.export_formats
-                    for export_format in self._config.ix_scrapper_export_formats
+                    for export_format in self._config.ix_scraper_export_formats
                 ]):
                     return reference_article, False
 
             driver.get(article.url)
 
-            WebDriverWait(driver, self._config.ix_scrapper_timeout).until(
+            WebDriverWait(driver, self._config.ix_scraper_timeout).until(
                 EC.presence_of_element_located((By.TAG_NAME, "main"))
             )
 
@@ -451,7 +466,7 @@ class IXScraper:
             article.page = str(article_data.get('page', ''))
 
             output_path_base = (
-                self._config.ix_scrapper_output_dir /
+                self._config.ix_scraper_output_dir /
                 article.issue_year /
                 article.issue_number /
                 f"{article.page or article.id or '0'}.ext"
@@ -465,13 +480,14 @@ class IXScraper:
                 logger.error(f"Failed to create directory {output_path_base.parent}: {e}")
                 raise
 
-            for export_format in self._config.ix_scrapper_export_formats:
+            for export_format in self._config.ix_scraper_export_formats:
                 target_path = output_path_base.with_suffix(export_format.extension)
-                article.files.append(target_path)
                 if (
-                    not self._config.ix_scrapper_overwrite and
+                    not self._config.ix_scraper_overwrite and
                     target_path.exists()
                 ):
+                    article.files.append(target_path)
+                    article.export_formats.append(export_format)
                     logger.debug(
                         f"Skipping {export_format.extension} for article {article} "
                         "because it already exists"
@@ -493,6 +509,10 @@ class IXScraper:
                 except Exception as e:
                     logger.error(f"Failed to export {export_format.extension} for article {article.id}: {e}")
                     raise
+
+                else:
+                    article.files.append(target_path)
+                    article.export_formats.append(export_format)
 
             return article, len(article.files) > 0
 
@@ -570,7 +590,7 @@ class IXScraper:
                 pbar = tqdm(desc="Fetching archive structure")
                 issues_links = await self._fetch_links(
                     session,
-                    url=self._config.ix_scrapper_archive_url,
+                    url=self._config.ix_scraper_archive_url,
                     class_name="archive__years__link"
                 )
                 pbar.close()
@@ -628,7 +648,7 @@ class IXScraper:
 
                 if not self._shutdown_event.is_set():
                     self._lookup_registry = tuple(el["article"] for el in processed_articles)
-                    path = self._config.ix_scrapper_output_dir / 'articles.json'
+                    path = self._config.ix_scraper_output_dir / 'articles.json'
                     if path.exists():
                         path.rename(path.with_suffix(".json.bak"))
                     with open(path, 'w') as f:
@@ -650,7 +670,7 @@ class IXScraper:
                 )
                 for issue_link in await self._fetch_links(
                     session,
-                    url=f"{self._config.ix_scrapper_base_url}{issues_link}",
+                    url=f"{self._config.ix_scraper_base_url}{issues_link}",
                     class_name="archive__year__link"
                 )
             ]) for article in articles
@@ -665,7 +685,7 @@ class IXScraper:
         articles = []
         for link in await self._fetch_links(
             session,
-            url=f"{self._config.ix_scrapper_base_url}{issue_link}",
+            url=f"{self._config.ix_scraper_base_url}{issue_link}",
             class_name="share-link share-link--read"
         ):
             parts = re.split(r"\D+/", link)[-1].rsplit("/", 2)
@@ -678,7 +698,7 @@ class IXScraper:
                 id=article_id,
                 issue_year=issue_year,
                 issue_number=issue_number,
-                url=f"{self._config.ix_scrapper_base_url}{link}",
+                url=f"{self._config.ix_scraper_base_url}{link}",
             ))
 
         return articles

@@ -1,36 +1,37 @@
-import pytest
-from unittest.mock import Mock, patch, mock_open
-from pathlib import Path
 import asyncio
+import pytest
+from pathlib import Path
+from unittest.mock import Mock, patch
 
 try:
-    from selenium.webdriver.chrome.webdriver import WebDriver
-except ImportError:
-    pytest.skip("Selenium is not installed", allow_module_level=True)
-
-from scrapers.ix.scraper import Service
-from scrapers.ix.scraper import TimeoutException
-from scrapers.ix.scraper import IXScraper
-from scrapers.ix.config import Settings, ExportFormat
-from scrapers.ix.article import Article
+    from scrapers.ix.scraper import WebDriver
+    from scrapers.ix.scraper import Service
+    from scrapers.ix.scraper import TimeoutException
+    from scrapers.ix.scraper import IXScraper
+    from scrapers.ix.config import Settings, ExportFormat
+    from scrapers.ix.article import Article
+    from scrapers.ix.scraper import SCRAPER_AVAILABLE
+except (ModuleNotFoundError, ImportError) as e:
+    pytest.skip(reason=str(e), allow_module_level=True)
+else:
+    if SCRAPER_AVAILABLE is not True:
+        pytest.skip(reason="scraper dependencies are not installed", allow_module_level=True)
 
 
 @pytest.fixture
 def mock_settings():
-    with (
-        patch("os.environ", {}),
-        patch("builtins.open", mock_open(read_data=""))
-    ):
-        return Settings(
-            ix_scrapper_max_threads=1,
-            ix_scrapper_max_concurrent=1,
-            ix_scrapper_timeout=1,
-            ix_scrapper_retry_attempts=1,
-            ix_scrapper_output_dir=Path("/tmp/test_output"),
-            ix_scrapper_webdriver_options=["--headless"],
-            ix_scrapper_export_formats=[ExportFormat(extension=".pdf", command="print")],
-            ix_scrapper_overwrite=False
-        )
+    return Settings(
+        ix_scraper_max_threads=1,
+        ix_scraper_max_concurrent=1,
+        ix_scraper_timeout=1,
+        ix_scraper_retry_attempts=1,
+        ix_scraper_output_dir=Path("/tmp/test_output"),
+        ix_scraper_webdriver_options=["--headless"],
+        ix_scraper_export_formats=[ExportFormat(extension=".pdf", command="print")],
+        ix_scraper_overwrite=False,
+        ix_scraper_username="test_username",
+        ix_scraper_password="test_password",
+    )
 
 
 @pytest.fixture
@@ -67,10 +68,10 @@ async def test_scraper_initialization(mock_settings, mock_webdriver, mock_servic
     scraper = IXScraper(config=mock_settings)
 
     assert scraper._config == mock_settings
-    assert scraper._semaphore._value == mock_settings.ix_scrapper_max_concurrent
-    assert scraper._connector.limit == mock_settings.ix_scrapper_max_concurrent
-    assert scraper._timeout.total == mock_settings.ix_scrapper_timeout
-    assert scraper._thread_pool._max_workers == mock_settings.ix_scrapper_max_threads
+    assert scraper._semaphore._value == mock_settings.ix_scraper_max_concurrent
+    assert scraper._connector.limit == mock_settings.ix_scraper_max_concurrent
+    assert scraper._timeout.total == mock_settings.ix_scraper_timeout
+    assert scraper._thread_pool._max_workers == mock_settings.ix_scraper_max_threads
     assert scraper._shutdown_event.is_set() is False
 
 

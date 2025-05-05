@@ -57,39 +57,39 @@ class Settings(BaseSettings):
         env_nested_delimiter="_",
         case_sensitive=False,
         frozen=True,
-        extra="ignore"
+        extra="ignore",
     )
 
-    ix_scrapper_base_url: str = Field(
+    ix_scraper_base_url: str = Field(
         default="https://www.heise.de",
         description="Base URL of the archive"
     )
-    ix_scrapper_sign_in_url: str = Field(
+    ix_scraper_sign_in_url: str = Field(
         default="https://www.heise.de/sso/login/?forward=https%3A%2F%2Fwww.heise.de%2Fix",
         description="Sign in URL of the archive"
     )
-    ix_scrapper_archive_url: str = Field(
+    ix_scraper_archive_url: str = Field(
         default="https://www.heise.de/select/ix/archiv/",
         description="Archive URL of the archive"
     )
-    ix_scrapper_max_threads: int = Field(default=10, description="Maximum number of threads")
-    ix_scrapper_max_concurrent: int = Field(default=10, description="Maximum number of concurrent requests")
-    ix_scrapper_timeout: int = Field(default=30, description="Timeout for the requests")
-    ix_scrapper_retry_attempts: int = Field(default=5, description="Number of retry attempts")
-    ix_scrapper_output_dir: Path = Field(
+    ix_scraper_max_threads: int = Field(default=10, description="Maximum number of threads")
+    ix_scraper_max_concurrent: int = Field(default=10, description="Maximum number of concurrent requests")
+    ix_scraper_timeout: int = Field(default=30, description="Timeout for the requests")
+    ix_scraper_retry_attempts: int = Field(default=5, description="Number of retry attempts")
+    ix_scraper_output_dir: Path = Field(
         default_factory=lambda: Path("~").expanduser().resolve() / "Downloads" / "ix",
         description="Output directory for the downloaded files"
     )
-    ix_scrapper_username: str = Field(
-        default_factory=lambda: input("[IX] Enter your username: "),
+    ix_scraper_username: str = Field(
+        default_factory=lambda: getpass("[IX] Enter your username: "),
         description="Username for the archive"
     )
-    ix_scrapper_password: str = Field(
+    ix_scraper_password: str = Field(
         default_factory=lambda: getpass("[IX] Enter your password: "),
         description="Password for the archive",
         repr=False
     )
-    ix_scrapper_webdriver_options: list[str] = Field(default_factory=lambda: [
+    ix_scraper_webdriver_options: list[str] = Field(default_factory=lambda: [
         '--headless',
         '--disable-dev-shm-usage',
         '--kiosk-printing',
@@ -105,21 +105,35 @@ class Settings(BaseSettings):
         '--disable-features=IsolateOrigins,site-per-process',
         '--disable-site-isolation-trials',
     ], description="The options to be used to configure the webdriver")
-    ix_scrapper_export_formats: list[ExportFormat] = Field(
+    ix_scraper_export_formats: list[ExportFormat] = Field(
         default_factory=lambda: [PDF_EXPORT_FORMAT],
         description="The formats to be used to export the files"
     )
-    ix_scrapper_overwrite: bool = Field(
+    ix_scraper_overwrite: bool = Field(
         default=False,
         description="Whether to overwrite existing files"
     )
 
-    @field_validator("ix_scrapper_webdriver_options", mode="before")
+    @classmethod
+    def for_testing(cls) -> 'Settings':
+        """Create a Settings instance with test values."""
+        return cls(
+            ix_scraper_max_threads=1,
+            ix_scraper_max_concurrent=1,
+            ix_scraper_timeout=1,
+            ix_scraper_retry_attempts=1,
+            ix_scraper_output_dir=Path("/tmp/test_output"),
+            ix_scraper_webdriver_options=["--headless"],
+            ix_scraper_export_formats=[ExportFormat(extension=".pdf", command="print")],
+            ix_scraper_overwrite=False,
+        )
+
+    @field_validator("ix_scraper_webdriver_options", mode="before")
     @classmethod
     def parse_cli_options(cls, v: Union[str, list[str]]) -> list[str]:
         return v.split(" ") if isinstance(v, str) else v
 
-    @field_validator("ix_scrapper_export_formats", mode="before")
+    @field_validator("ix_scraper_export_formats", mode="before")
     @classmethod
     def parse_export_formats(cls, v: Union[str, list[ExportFormat]]) -> list[ExportFormat]:
         if not isinstance(v, str):
