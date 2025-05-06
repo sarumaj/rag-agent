@@ -4,8 +4,8 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from langchain_community.document_loaders import (
     TextLoader,
-    PyMuPDFLoader,
     DirectoryLoader,
+    PyMuPDFLoader,
     UnstructuredHTMLLoader,
 )
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -22,8 +22,36 @@ from tqdm import tqdm
 
 from .config import Settings
 
-# os.environ["LANGCHAIN_TRACING_V2"] = "false"
-# os.environ["LANGSMITH_TRACING"] = "false"
+try:
+    from importlib import import_module
+    LOADERS_AVAILABLE = all([
+        import_module("pymupdf") is not None,
+        import_module("unstructured") is not None,
+    ])
+except (ImportError, ModuleNotFoundError):
+    LOADERS_AVAILABLE = False
+
+    class NotImported:
+        def __getattr__(self, item):
+            raise ModuleNotFoundError(
+                "Loader dependencies are not installed. "
+                "Please install them using: pip install 'rag-agent[loaders]'"
+            )
+
+        def __call__(self, *args, **kwargs):
+            raise ModuleNotFoundError(
+                "Loader dependencies are not installed. "
+                "Please install them using: pip install 'rag-agent[loaders]'"
+            )
+
+    globals().update(dict.fromkeys(
+        [
+            "PyMuPDFLoader",
+            "UnstructuredHTMLLoader",
+        ],
+        NotImported()
+    ))
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,7 +59,7 @@ logging.basicConfig(
     format='{asctime} - {levelname} - {message}',
 )
 
-logger = logging.getLogger("rag_pipeline")
+logger = logging.getLogger("rag_agent.pipeline")
 
 
 class RAGPipeline:
@@ -91,6 +119,17 @@ class RAGPipeline:
 
         self._rag_chain = None
 
+    @staticmethod
+    def _patch_metadata(doc: Document) -> Document:
+        if (
+            (
+                match := re.compile(doc.metadata.get('meta_pattern', ''))
+                .match(doc.metadata.get('source', ''))
+            )
+        ):
+            doc.metadata.update(match.groupdict() or dict(((str(i), g) for i, g in enumerate(match.groups()))))
+        return doc
+
     async def load_documents(self) -> List[Document]:
         """Load documents from various sources asynchronously.
 
@@ -104,6 +143,7 @@ class RAGPipeline:
             documents = []
             for path, sources in self._config.pipeline_sources.items():
                 for source in sources:
+                    logger.info(f"Loading documents from {path} using {source.source_type} loader")
                     match source.source_type:
                         case "txt":
                             loader_cls = TextLoader
@@ -134,9 +174,12 @@ class RAGPipeline:
 
                     for doc in await loader.aload():
                         doc.metadata.update({
-                            "meta_pattern": source.meta_pattern,
+                            "meta_pattern": str(source.meta_pattern),
                         })
+                        doc = self._patch_metadata(doc)
                         documents.append(doc)
+
+                    logger.info(f"Loaded {len(documents)} documents from {path} using {source.source_type} loader")
 
             return documents
 
@@ -180,15 +223,7 @@ class RAGPipeline:
             List of document ids
         """
         logger.info(f"Updating vector store with {len(documents)} documents")
-        new_documents = list(filter_complex_metadata(documents))
-        for document in new_documents:
-            if (
-                (
-                    match := re.compile(document.metadata.get('meta_pattern', ''))
-                    .match(document.metadata.get('source', ''))
-                )
-            ):
-                document.metadata.update(match.groupdict() or dict(((str(i), g) for i, g in enumerate(match.groups()))))
+        new_documents = list(map(self._patch_metadata, filter_complex_metadata(documents)))
 
         with tqdm(total=len(new_documents), desc="Updating vector store") as pbar:
             ids = []
@@ -249,25 +284,18 @@ class RAGPipeline:
             results = retriever.invoke(state["question"])
             formatted_docs = []
             for doc in results:
-                extracted_metadata = {}
-                if (
-                    (
-                        match := re.compile(self._config.pipeline_source_meta_pattern)
-                        .match(doc.metadata.get('source', ''))
-                    )
-                ):
-                    extracted_metadata = match.groupdict() or dict(((str(i), g) for i, g in enumerate(match.groups())))
-
-                formatted_doc = f"Title: {doc.metadata.get('title', 'Unknown')}\n"
-                for key, value in extracted_metadata.items():
-                    formatted_doc += f"{key.title()}: {value}"+"\n"
-
-                formatted_doc += f"Content: {doc.page_content}\n"
-                formatted_docs.append(formatted_doc)
+                doc = self._patch_metadata(doc)
+                formatted_docs.append("\n".join([
+                    f"{key.title()}: {value}" for key, value in {
+                        **doc.metadata,
+                        "Content": doc.page_content
+                    }.items()
+                ]))
             return {"context": "\n\n".join(formatted_docs)}
 
         def generate(state: State) -> State:
             prompt_template = prompt.invoke({"context": state["context"], "question": state["question"]})
+            logger.debug(f"Prompt: {prompt_template}")
             response = self._llm.invoke(prompt_template)
             return {"answer": response}
 
@@ -293,8 +321,10 @@ class RAGPipeline:
         if not self._rag_chain:
             raise ValueError("Retrieval chain not initialized. Call setup_retrieval_chain() first.")
 
-        response = await self._rag_chain.ainvoke({"question": question})
-        return response["answer"]
+        response = {}
+        async for chunk in self._rag_chain.astream({"question": question}, stream_mode="updates"):
+            response.update(chunk)
+        return response
 
     async def __aenter__(self):
         """Async context manager entry."""

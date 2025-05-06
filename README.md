@@ -56,9 +56,7 @@ Create a `.env` file in the project root with your configuration:
 
 ```env
 # Document source settings
-PIPELINE_SOURCE=/path/to/your/documents
-PIPELINE_SOURCE_TYPE=pdf  # or 'file', 'html'
-PIPELINE_SOURCE_META_PATTERN=^.*/(?P<journal>[^/]+)/(?P<year>\d+)/(?P<month>\d+)/(?P<page>\d+)(?:\.\w+)?$
+PIPELINE_SOURCES='{"/path/to/your/documents": ["pdf", "mhtml"]}'
 
 # Text splitting settings
 PIPELINE_CHUNK_SIZE=1000
@@ -188,18 +186,18 @@ Add the following to your `.env` file for IX scraper configuration:
 
 ```env
 # IX Scraper settings
-IX_BASE_URL=https://www.heise.de
-IX_SIGN_IN_URL=https://www.heise.de/sso/login/
-IX_ARCHIVE_URL=https://www.heise.de/select/ix/archiv/
-IX_MAX_THREADS=10
-IX_MAX_CONCURRENT=10
-IX_TIMEOUT=30
-IX_RETRY_ATTEMPTS=5
-IX_OUTPUT_DIR=~/Downloads/ix
-IX_USERNAME=your_username
-IX_PASSWORD=your_password
-IX_OVERWRITE=false
-IX_EXPORT_FORMATS=["pdf"]
+IX_SCRAPER_BASE_URL=https://www.heise.de
+IX_SCRAPER_SIGN_IN_URL=https://www.heise.de/sso/login/
+IX_SCRAPER_ARCHIVE_URL=https://www.heise.de/select/ix/archiv/
+IX_SCRAPER_MAX_THREADS=10
+IX_SCRAPER_MAX_CONCURRENT=10
+IX_SCRAPER_TIMEOUT=30
+IX_SCRAPER_RETRY_ATTEMPTS=5
+IX_SCRAPER_OUTPUT_DIR=~/Downloads/ix
+IX_SCRAPER_USERNAME=your_username
+IX_SCRAPER_PASSWORD=your_password
+IX_SCRAPER_OVERWRITE=false
+IX_SCRAPER_EXPORT_FORMATS=["pdf"]
 ```
 
 ### Usage

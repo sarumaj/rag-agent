@@ -64,7 +64,7 @@ logging.basicConfig(
     format='{asctime} - {levelname} - {message}',
 )
 
-logger = logging.getLogger("ix.scrapper")
+logger = logging.getLogger("rag_agent.scrapers.ix")
 
 
 class IXScraper:

@@ -35,6 +35,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+loaders  = [
+    "pymupdf==1.25.5",
+    "unstructured==0.17.2"
+]
 scraper = [
     "selenium==4.32.0",
     "webdriver_manager==4.0.2"
@@ -44,15 +48,9 @@ test = [
     "pytest-asyncio==0.23.5"
 ]
 
-[tool.setuptools]
-include-package-data = true
-
 [tool.setuptools.packages.find]
 where = ["src"]
-exclude = ["scrapers*", "tests*"]
-
-[tool.setuptools.package-data]
-scrapers = ["**/*.py"]
+exclude = ["tests*"]
 
 [tool.setuptools_scm]
 write_to = "src/rag_agent/_version.py"
