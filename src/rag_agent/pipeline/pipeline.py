@@ -1,4 +1,4 @@
-from typing import List, TypedDict, Dict, Any, Optional
+from typing import List, TypedDict, Dict, Any, Optional, Literal
 import logging
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
@@ -19,6 +19,7 @@ from langchain_core.documents import Document
 from chromadb.config import Settings as ChromaSettings
 import re
 from tqdm import tqdm
+import json
 
 from .config import Settings
 
@@ -119,17 +120,6 @@ class RAGPipeline:
 
         self._rag_chain = None
 
-    @staticmethod
-    def _patch_metadata(doc: Document) -> Document:
-        if (
-            (
-                match := re.compile(doc.metadata.get('meta_pattern', ''))
-                .match(doc.metadata.get('source', ''))
-            )
-        ):
-            doc.metadata.update(match.groupdict() or dict(((str(i), g) for i, g in enumerate(match.groups()))))
-        return doc
-
     async def load_documents(self) -> List[Document]:
         """Load documents from various sources asynchronously.
 
@@ -173,10 +163,18 @@ class RAGPipeline:
                     )
 
                     for doc in await loader.aload():
+                        meta_pattern = (
+                            source.meta_pattern
+                            if isinstance(source.meta_pattern, re.Pattern)
+                            else re.compile(source.meta_pattern)
+                        )
                         doc.metadata.update({
-                            "meta_pattern": str(source.meta_pattern),
+                            "meta_pattern": meta_pattern.pattern,
+                            **((
+                                match.groupdict() or
+                                dict(((str(i), g) for i, g in enumerate(match.groups())))
+                            ) if (match := meta_pattern.match(doc.metadata.get('source', ''))) else {})
                         })
-                        doc = self._patch_metadata(doc)
                         documents.append(doc)
 
                     logger.info(f"Loaded {len(documents)} documents from {path} using {source.source_type} loader")
@@ -222,14 +220,15 @@ class RAGPipeline:
         Returns:
             List of document ids
         """
-        logger.info(f"Updating vector store with {len(documents)} documents")
-        new_documents = list(map(self._patch_metadata, filter_complex_metadata(documents)))
 
-        with tqdm(total=len(new_documents), desc="Updating vector store") as pbar:
+        documents = list(filter_complex_metadata(documents))
+        logger.info(f"Updating vector store with {len(documents)} documents")
+
+        with tqdm(total=len(documents), desc="Updating vector store") as pbar:
             ids = []
             batch_size = 100
-            for i in range(0, len(new_documents), batch_size):
-                batch = new_documents[i:i + batch_size]
+            for i in range(0, len(documents), batch_size):
+                batch = documents[i:i + batch_size]
                 batch_ids = await self._vectorstore.aadd_documents(batch)
                 ids.extend(batch_ids)
                 pbar.update(len(batch))
@@ -251,8 +250,12 @@ class RAGPipeline:
             )
         )
 
-    async def setup_retrieval_chain(self):
-        """Set up the retrieval-augmented generation chain asynchronously."""
+    async def setup_retrieval_chain(self, context_format: Literal["json", "markdown"] = "json"):
+        """Set up the retrieval-augmented generation chain asynchronously.
+
+        Args:
+            context_format: Format of the context to be used in the prompt
+        """
         prompt = ChatPromptTemplate.from_template(self._config.pipeline_prompt_template)
 
         retrieval_settings = {
@@ -282,29 +285,42 @@ class RAGPipeline:
 
         def retrieve(state: State) -> State:
             results = retriever.invoke(state["question"])
-            formatted_docs = []
-            for doc in results:
-                doc = self._patch_metadata(doc)
-                formatted_docs.append("\n".join([
-                    f"{key.title()}: {value}" for key, value in {
-                        **doc.metadata,
-                        "Content": doc.page_content
-                    }.items()
-                ]))
-            return {"context": "\n\n".join(formatted_docs)}
+            return {"context": results}
 
         def generate(state: State) -> State:
-            prompt_template = prompt.invoke({"context": state["context"], "question": state["question"]})
-            logger.debug(f"Prompt: {prompt_template}")
+            match context_format:
+                case "json":
+                    formatted_context = json.dumps([
+                        {
+                            **doc.metadata,
+                            "Content": doc.page_content
+                        }
+                        for doc in state["context"]
+                    ])
+                case "markdown":
+                    keys = {key for doc in state["context"] for key in doc.metadata.keys()}
+                    formatted_context = "\n".join([
+                        "| " + " | ".join(keys) + " |",
+                        "| " + " | ".join(["---"] * len(keys)) + " |",
+                        *[
+                            "| " + " | ".join([str(doc.get(key, "")) for key in keys]) + " |"
+                            for doc in state["context"]
+                        ],
+                    ])
+                case _:
+                    raise ValueError(f"Unsupported context format: {context_format}")
+
+            prompt_template = prompt.invoke({
+                "context": f"```{context_format}\n\n{formatted_context}\n\n```",
+                "question": state["question"]
+            })
             response = self._llm.invoke(prompt_template)
-            return {"answer": response}
+            return {"answer": response, "context": formatted_context}
 
         graph = StateGraph(State)
-
         graph.add_node("retrieve", retrieve)
-        graph.add_node("generate", generate)
-
         graph.add_edge(START, "retrieve")
+        graph.add_node("generate", generate)
         graph.add_edge("retrieve", "generate")
 
         self._rag_chain = graph.compile()
