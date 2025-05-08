@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=42", "wheel", "setuptools-scm>=8.0.0"]
+requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "rag-agent"
-dynamic = ["version"]
+version = "0.0.0"
 description = "RAG (Retrieval-Augmented Generation) pipeline implementation"
 requires-python = ">=3.12"
 authors = [
@@ -51,12 +51,6 @@ test = [
 [tool.setuptools.packages.find]
 where = ["src"]
 exclude = ["tests*"]
-
-[tool.setuptools_scm]
-write_to = "src/rag_agent/_version.py"
-version_scheme = "post-release"
-local_scheme = "node-and-date"
-fallback_version = "0.0.0"
 
 [tool.pytest.ini_options]
 pythonpath = ["src/rag_agent"]

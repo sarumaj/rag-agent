@@ -202,12 +202,31 @@ async def test_run_pipeline(mock_settings):
     """Test pipeline execution."""
     with patch("pipeline.pipeline.StateGraph") as mock_graph:
         mock_chain = AsyncMock()
-        mock_chain.ainvoke.return_value = {"answer": "Test answer"}
+
+        class MockAsyncIterator:
+            def __init__(self):
+                def _generator():
+                    yield {"context": "Important context"}
+                    yield {"answer": "Test answer"}
+
+                self.generator = _generator()
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                try:
+                    return next(self.generator)
+                except StopIteration:
+                    raise StopAsyncIteration
+
+        mock_chain.astream = Mock(return_value=MockAsyncIterator())
         mock_graph.return_value = mock_chain
 
         pipeline = RAGPipeline(config=mock_settings)
         pipeline._rag_chain = mock_chain
 
-        answer = await pipeline.run("Test question")
-        assert answer == "Test answer"
-        mock_chain.ainvoke.assert_called_once_with({"question": "Test question"})
+        response = await pipeline.run("Test question")
+        assert response == {"context": "Important context", "answer": "Test answer"}
+
+        mock_chain.astream.assert_called_once_with({"question": "Test question"}, stream_mode="updates")

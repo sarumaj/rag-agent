@@ -1,6 +1,6 @@
 [![release](https://github.com/sarumaj/rag-agent/actions/workflows/release.yml/badge.svg)](https://github.com/sarumaj/rag-agent/actions/workflows/release.yml)
 [![GitHub Release](https://img.shields.io/github/v/release/sarumaj/rag-agent?logo=github)](https://github.com/sarumaj/rag-agent/releases/latest)
-[![Libraries.io dependency status for GitHub repo](https://img.shields.io/librariesio/github/sarumaj/rag-agent)](https://github.com/sarumaj/rag-agent/blob/main/requirements.txt)
+[![Libraries.io dependency status for GitHub repo](https://img.shields.io/librariesio/github/sarumaj/rag-agent)](https://github.com/sarumaj/rag-agent/blob/main/pyproject.toml)
 
 ---
 
