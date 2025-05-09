@@ -48,7 +48,10 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 3. Install dependencies:
 ```bash
+# install from source
 pip install -e .
+# or install latest relase from PyPI
+pip install rag-agent
 ```
 
 4. Install Ollama (if using local models):
@@ -89,6 +92,8 @@ PIPELINE_SCORE_THRESHOLD=0.5
 PIPELINE_FETCH_K=20
 PIPELINE_LAMBDA_MULT=0.5
 ```
+
+Refer to [pipeline config](src/rag_agent/pipeline/config.py) for more information.
 
 ## Usage
 
@@ -132,7 +137,7 @@ async with RAGPipeline(config) as pipeline:
 
 ## Supported Models
 
-### Ollama Models
+### All Ollama Models
 - `mistral` (7B parameters)
 - `mixtral` (8x7B parameters)
 - `llama2` (7B parameters)
@@ -141,7 +146,7 @@ async with RAGPipeline(config) as pipeline:
 - `dolphin-mixtral` (Chat optimized)
 - And many more...
 
-### Hugging Face Models
+### Hugging Face Models (Experimental)
 - `mistralai/Mistral-7B-Instruct-v0.2`
 - `meta-llama/Llama-2-7b-chat-hf`
 - `malteos/gpt2-wechsel-german`
@@ -166,9 +171,9 @@ The pipeline supports various document types and processing options:
 - Structured content handling
 - Metadata preservation
 
-## IX Archive Scraper
+## iX Archive Scraper
 
-The project includes a specialized scraper for the IX archive with the following features:
+The project includes a specialized scraper for the archive of [iX magazine issues](https://www.heise.de/ix) with the following features:
 
 ### Features
 - **Automated Article Download**
@@ -205,6 +210,8 @@ IX_SCRAPER_PASSWORD=your_password
 IX_SCRAPER_OVERWRITE=false
 IX_SCRAPER_EXPORT_FORMATS=["pdf"]
 ```
+
+Refer to [iX scraper config](src/rag_agent/scrapers/ix/config.py) for more information.
 
 ### Usage
 
@@ -271,3 +278,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - ChromaDB for vector storage
 - Ollama for local LLM support
 - Hugging Face for model hosting
+- iX publishers
