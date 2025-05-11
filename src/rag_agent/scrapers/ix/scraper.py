@@ -1,5 +1,17 @@
-import asyncio
-from asyncio import Semaphore, Queue, create_task, gather, Event
+from asyncio import (
+    Semaphore,
+    Queue,
+    create_task,
+    gather,
+    Event,
+    Task,
+    Lock,
+    get_event_loop,
+    new_event_loop,
+    set_event_loop,
+    CancelledError,
+    sleep as async_sleep
+)
 import json
 import signal
 import re
@@ -97,8 +109,8 @@ class IXScraper:
         self._thread_pool = ThreadPoolExecutor(max_workers=self._config.ix_scraper_max_threads)
         self._service = Service(ChromeDriverManager().install())
         self._shutdown_event = Event()
-        self._running_tasks: Set[asyncio.Task] = set()
-        self._file_lock = asyncio.Lock()
+        self._running_tasks: Set[Task] = set()
+        self._file_lock = Lock()
 
         logger.info(f"Using config: {self._config.model_dump_json(indent=2)}")
 
@@ -115,10 +127,10 @@ class IXScraper:
             logger.info("Lookup registry not found")
 
         try:
-            self._loop = asyncio.get_event_loop()
+            self._loop = get_event_loop()
         except RuntimeError:
-            self._loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self._loop)
+            self._loop = new_event_loop()
+            set_event_loop(self._loop)
 
     def _setup_driver(self) -> WebDriver:
         """Setup Chrome driver with options.
@@ -198,7 +210,7 @@ class IXScraper:
                             return
                         else:
                             logger.warning(f"Login attempt {attempt + 1} failed, retrying...")
-                            await asyncio.sleep(1 * (attempt + 1))
+                            await async_sleep(1 * (attempt + 1))
 
                 tasks = []
                 for idx, driver in enumerate(drivers):
@@ -208,13 +220,13 @@ class IXScraper:
                     )
                     self._running_tasks.add(task)
 
-                    def callback(task: asyncio.Task):
+                    def callback(task: Task):
                         self._running_tasks.discard(task)
 
                     task.add_done_callback(callback)
                     tasks.append(task)
 
-                await asyncio.gather(*tasks)
+                await gather(*tasks)
 
             if successful_logins != len(drivers):
                 raise Exception(f"Failed to login to {len(drivers) - successful_logins} drivers")
@@ -557,13 +569,13 @@ class IXScraper:
         - Shutting down the thread pool
         """
         logger.info("Starting cleanup...")
-        for task in self._running_tasks:
-            if not task.done():
+        for task in self._running_tasks.copy():
+            if task and not task.done():
                 logger.debug(f"Cancelling task {task.get_name()}")
                 task.cancel()
                 try:
                     await task
-                except asyncio.CancelledError:
+                except CancelledError:
                     pass
                 except Exception as e:
                     logger.error(f"Error while cancelling task {task.get_name()}: {e}")
@@ -624,7 +636,7 @@ class IXScraper:
                         )
                         self._running_tasks.add(task)
 
-                        def callback(task: asyncio.Task):
+                        def callback(task: Task):
                             self._running_tasks.discard(task)
                             pbar.update(1)
 
@@ -649,7 +661,7 @@ class IXScraper:
                         )
                         self._running_tasks.add(task)
 
-                        async def callback(task: asyncio.Task):
+                        async def callback(task: Task):
                             self._running_tasks.discard(task)
                             pbar.update(1)
                             try:
@@ -664,7 +676,7 @@ class IXScraper:
                             except Exception as e:
                                 logger.error(f"Failed to update articles.json: {e}")
 
-                        task.add_done_callback(lambda t: asyncio.create_task(callback(t)))
+                        task.add_done_callback(lambda t: create_task(callback(t)))
                         tasks.append(task)
 
                     if tasks:
@@ -683,8 +695,8 @@ class IXScraper:
     ) -> List[Article]:
         """Process a single year's issues concurrently."""
         return [
-            article for articles in await asyncio.gather(*[
-                asyncio.create_task(
+            article for articles in await gather(*[
+                create_task(
                     coro=self._process_archive_issue(session, issue_link),
                     name=issue_link,
                 )

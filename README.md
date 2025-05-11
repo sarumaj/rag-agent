@@ -100,7 +100,7 @@ Refer to [pipeline config](src/rag_agent/pipeline/config.py) for more informatio
 ### Basic Usage
 
 ```python
-from pipeline import RAGPipeline, Settings
+from rag_agent.pipeline import RAGPipeline, Settings
 
 async def main():
     # Initialize with default settings
@@ -217,12 +217,29 @@ Refer to [iX scraper config](src/rag_agent/scrapers/ix/config.py) for more infor
 
 ```python
 # pip install -e .[scraper]
-from scrappers.ix import IXScraper, Settings
+from rag_agent.scrappers.ix import IXScraper, Settings
 
 async def main():
     # Initialize with default settings
     async with IXScraper() as scraper:
-        # Run the scraper
+        # Run the scraper to export each article separately using export configuration
+        await scraper.run()
+
+# Run the scraper
+import asyncio
+asyncio.run(main())
+```
+
+or 
+
+```python
+# pip install -e .[scraper]
+from rag_agent.scrappers.ix import IXDownloader, Settings
+
+async def main():
+    # Initialize with default settings
+    async with IXDownloader() as scraper:
+        # Run the scraper to download the issues in PDF format
         await scraper.run()
 
 # Run the scraper
