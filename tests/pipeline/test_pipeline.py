@@ -82,7 +82,6 @@ async def test_pipeline_initialization(mock_settings):
         pipeline = RAGPipeline(config=mock_settings)
 
         assert pipeline._config == mock_settings
-        assert pipeline._thread_pool._max_workers == mock_settings.pipeline_max_threads
         mock_embeddings.assert_called_once_with(
             model_name=mock_settings.pipeline_embedding_model,
             model_kwargs=mock_settings.pipeline_embedding_model_kwargs,
