@@ -122,6 +122,8 @@ asyncio.run(main())
 
 ### Web UI
 
+![UI screenshot](doc/screenshot.png)
+
 The project includes a modern web interface built with Panel that provides an interactive way to use the RAG pipeline:
 
 #### Features

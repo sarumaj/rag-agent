@@ -6,6 +6,7 @@ import json
 import asyncio
 from datetime import datetime
 from pathlib import Path
+import logging
 
 from ..pipeline.pipeline import RAGPipeline
 from ..pipeline.config import (
@@ -44,6 +45,34 @@ except (ImportError, ModuleNotFoundError):
     ))
 
 pn.extension('jsoneditor', notifications=True)
+
+TERMINAL = pn.widgets.Terminal(
+    "",
+    options={"cursorBlink": True},
+    sizing_mode="stretch_width",
+)
+
+
+class TerminalLogHandler(logging.Handler):
+    """Custom logging handler that writes to the terminal widget."""
+    def __init__(self, terminal: pn.widgets.Terminal, *args, **kwargs):
+        self._terminal = terminal
+        super().__init__(*args, **kwargs)
+        self.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
+    def emit(self, record: logging.LogRecord):
+        try:
+            self._terminal.write(self.format(record) + '\n')
+        except Exception:
+            self.handleError(record)
+
+
+handler = TerminalLogHandler(TERMINAL)
+handler.setLevel(logging.INFO)
+
+root_logger = logging.getLogger()
+root_logger.addHandler(handler)
+root_logger.setLevel(logging.INFO)
 
 
 class ChatWithConfigurableMessages(pn.chat.ChatInterface):
@@ -135,12 +164,9 @@ class RAGChatInterface:
             self.obj = obj
             self.cls = obj
 
-    class SourceConfig(TypedDict):
-        """Source configuration."""
-        sources: pn.widgets.JSONEditor
-
     class EmbeddingConfig(TypedDict):
         """Embedding model configuration."""
+        sources: pn.widgets.JSONEditor
         model: pn.widgets.TextInput
         device: pn.widgets.Select
 
@@ -189,14 +215,14 @@ class RAGChatInterface:
 
     class ConfigSections(TypedDict):
         """UI sections for configuration."""
-        sources: pn.Column
         embedding: pn.Column
         text_splitting: pn.Column
         vector_store: pn.Column
         retrieval: pn.Column
         llm: pn.Column
 
-    def __init__(self):
+    def __init__(self, terminal: pn.widgets.Terminal = TERMINAL):
+        self._terminal = terminal
         self._pipeline: RAGPipeline | None = None
         self._reload_documents = False
         self._pipeline_config = Settings()
@@ -207,15 +233,15 @@ class RAGChatInterface:
     def _create_config_widgets(self) -> list[pn.widgets.Widget]:
         """Create the configuration section with widgets for all pipeline settings."""
         widgets: RAGChatInterface.ConfigWidgets = {
-            "sources": {
+            "embedding": {
                 "sources": pn.widgets.JSONEditor(
-                    name="Sources",
+                    name="Embedding source configuration",
                     value={
                         k: [
                             v.as_dict() if isinstance(v, DocumentSource) else v for v in vv
                         ] for k, vv in self._pipeline_config.pipeline_sources.items()
                     },
-                    mode="text",
+                    mode="tree",
                     search=False,
                     menu=False,
                     sizing_mode="stretch_width",
@@ -240,7 +266,10 @@ class RAGChatInterface:
                                                 },
                                                 "meta_pattern": {
                                                     "type": "string",
-                                                    "description": "Regex pattern for extracting metadata from the source path"
+                                                    "description": (
+                                                        "Regex pattern for extracting metadata "
+                                                        "from the source path"
+                                                    )
                                                 },
                                                 "glob_pattern": {
                                                     "type": "string",
@@ -257,8 +286,6 @@ class RAGChatInterface:
                         "additionalProperties": False
                     },
                 ),
-            },
-            "embedding": {
                 "model": pn.widgets.TextInput(
                     name="Embedding Model",
                     value=self._pipeline_config.pipeline_embedding_model,
@@ -357,40 +384,31 @@ class RAGChatInterface:
         }
 
         sections: RAGChatInterface.ConfigSections = {
-            "sources": pn.Column(
-                widgets["sources"]["sources"],
-                pn.layout.Divider(),
-                name="Source Settings"
-            ),
             "embedding": pn.Column(
+                widgets["embedding"]["sources"],
                 widgets["embedding"]["model"],
                 widgets["embedding"]["device"],
-                pn.layout.Divider(),
                 name="Embedding Model Settings"
             ),
             "text_splitting": pn.Column(
                 widgets["text_splitting"]["chunk_size"],
                 widgets["text_splitting"]["chunk_overlap"],
-                pn.layout.Divider(),
                 name="Text Splitting Settings"
             ),
             "vector_store": pn.Column(
                 widgets["vector_store"]["persist_directory"],
                 widgets["vector_store"]["collection_name"],
-                pn.layout.Divider(),
                 name="Vector Store Settings"
             ),
             "retrieval": pn.Column(
                 widgets["retrieval"]["search_type"],
                 widgets["retrieval"]["k"],
-                pn.layout.Divider(),
                 name="Retrieval Settings"
             ),
             "llm": pn.Column(
                 widgets["llm"]["provider"],
                 widgets["llm"]["model"],
                 widgets["llm"]["temperature"],
-                pn.layout.Divider(),
                 name="LLM Settings"
             ),
         }
@@ -399,7 +417,7 @@ class RAGChatInterface:
             match event.new:
                 case "huggingface":
                     if widgets["llm"]["api_key"] not in sections["llm"]:
-                        sections["llm"].insert(-1, widgets["llm"]["api_key"])
+                        sections["llm"].append(widgets["llm"]["api_key"])
                 case _:
                     if widgets["llm"]["api_key"] in sections["llm"]:
                         sections["llm"].remove(widgets["llm"]["api_key"])
@@ -415,10 +433,10 @@ class RAGChatInterface:
 
             match event.new:
                 case "mmr":
-                    sections["retrieval"].insert(-1, widgets["retrieval"]["fetch_k"])
-                    sections["retrieval"].insert(-1, widgets["retrieval"]["lambda_mult"])
+                    sections["retrieval"].append(widgets["retrieval"]["fetch_k"])
+                    sections["retrieval"].append(widgets["retrieval"]["lambda_mult"])
                 case "similarity_score_threshold":
-                    sections["retrieval"].insert(-1, widgets["retrieval"]["score_threshold"])
+                    sections["retrieval"].append(widgets["retrieval"]["score_threshold"])
 
         update_llm_section(RAGChatInterface.InitialEvent(widgets["llm"]["provider"]))
         update_retrieval_section(RAGChatInterface.InitialEvent(widgets["retrieval"]["search_type"]))
@@ -433,13 +451,19 @@ class RAGChatInterface:
         reload_documents_checkbox.param.watch(self._toggle_reload_documents, "value")
         apply_button = pn.widgets.Button(
             name="Apply Changes",
-            button_type="primary"
+            button_type="primary",
+            height=30,
         )
         apply_button.on_click(self._apply_config_changes)
 
         return [
             *sections.values(),
             reload_documents_checkbox,
+            pn.indicators.LoadingSpinner(
+                name="",
+                value=False,
+                size=30,
+            ),
             apply_button,
         ]
 
@@ -450,13 +474,14 @@ class RAGChatInterface:
     def _apply_config_changes(self, event: Any) -> None:
         """Apply configuration changes and reinitialize the pipeline."""
         event.obj.disabled = True
+        spinner = self._config_widgets[-2]
+        spinner.value = True
         try:
-            sources_section = self._config_widgets[0]
-            embedding_section = self._config_widgets[1]
-            text_splitting_section = self._config_widgets[2]
-            vector_store_section = self._config_widgets[3]
-            retrieval_section = self._config_widgets[4]
-            llm_section = self._config_widgets[5]
+            embedding_section = self._config_widgets[0]
+            text_splitting_section = self._config_widgets[1]
+            vector_store_section = self._config_widgets[2]
+            retrieval_section = self._config_widgets[3]
+            llm_section = self._config_widgets[4]
 
             config_kwargs = {
                 "pipeline_sources": {
@@ -469,10 +494,10 @@ class RAGChatInterface:
                             "txt": TXT_SOURCE,
                         }[v] if isinstance(v, str) and v in ["pdf", "mhtml", "html", "txt"] else v
                         for v in vv
-                    ] for k, vv in sources_section[0].value.items()
+                    ] for k, vv in embedding_section[0].value.items()
                 },
-                "pipeline_embedding_model": embedding_section[0].value,
-                "pipeline_embedding_model_kwargs": {"device": embedding_section[1].value},
+                "pipeline_embedding_model": embedding_section[1].value,
+                "pipeline_embedding_model_kwargs": {"device": embedding_section[2].value},
                 "pipeline_chunk_size": text_splitting_section[0].value,
                 "pipeline_chunk_overlap": text_splitting_section[1].value,
                 "pipeline_persist_directory": vector_store_section[0].value,
@@ -507,6 +532,7 @@ class RAGChatInterface:
         else:
             pn.state.notifications.success("Configuration applied successfully!", duration=3000)
         finally:
+            spinner.value = False
             event.obj.disabled = False
 
     async def _initialize_pipeline(self) -> None:
@@ -598,16 +624,31 @@ class RAGChatInterface:
         """Create the main layout."""
         return pn.template.BootstrapTemplate(
             title="RAG Agent Chat Interface",
-            main=[self._chat_interface],
+            main=[
+                pn.layout.Card(
+                    self._chat_interface,
+                    title="Chat",
+                    collapsible=False,
+                    collapsed=False,
+                ),
+                pn.layout.Card(
+                    self._terminal,
+                    title="Terminal",
+                    collapsible=True,
+                    collapsed=True,
+                ),
+            ],
             sidebar=[
-                pn.layout.Column(
-                    *self._config_widgets[:-2],
-                    self._config_widgets[-2],
-                    pn.layout.Row(
-                        pn.layout.HSpacer(),
-                        self._config_widgets[-1],
-                    ),
-                )
+                pn.layout.Accordion(
+                    *self._config_widgets[:-3],
+                    active=[0],
+                    toggle=True,
+                ),
+                self._config_widgets[-3],
+                pn.layout.Row(
+                    pn.layout.HSpacer(),
+                    *self._config_widgets[-2:],
+                ),
             ],
             sidebar_width=350,
             theme=pn.template.DefaultTheme,
