@@ -50,7 +50,7 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```bash
 # install from source
 pip install -e .
-# or install latest relase from PyPI
+# or install latest release from PyPI
 pip install rag-agent
 ```
 
@@ -119,6 +119,53 @@ async def main():
 import asyncio
 asyncio.run(main())
 ```
+
+### Web UI
+
+The project includes a modern web interface built with Panel that provides an interactive way to use the RAG pipeline:
+
+#### Features
+- **Interactive Chat Interface**
+  - Real-time question answering
+  - Context toggle for viewing retrieved documents
+  - Chat history saving and export
+  - Copy and clear functionality
+
+- **Configuration Management**
+  - Live configuration updates
+  - Document source management
+  - Embedding model settings
+  - Text splitting parameters
+  - Vector store configuration
+  - Retrieval strategy options
+  - LLM provider settings
+
+- **User Experience**
+  - Responsive layout with collapsible sidebar
+  - Real-time notifications
+  - Progress tracking
+  - Error handling with detailed feedback
+
+#### Installation
+
+Install the UI dependencies:
+```bash
+pip install 'rag-agent[ui]'
+```
+
+#### Usage
+
+Start the web interface:
+```bash
+python -m rag_agent.ui
+```
+
+Or specify a custom port:
+```bash
+python -m rag_agent.ui --port 8502
+```
+
+The interface will be available at `http://localhost:8501` (or your specified port).
 
 ### Custom Configuration
 

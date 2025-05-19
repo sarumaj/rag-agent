@@ -7,14 +7,20 @@
         "astream",
         "asyncio",
         "beautifulsoup",
+        "codellama",
         "coro",
+        "cuda",
         "huggingface",
         "jsoneditor",
+        "KWARGS",
         "langchain",
         "langgraph",
         "levelname",
+        "malteos",
         "metadatas",
         "MHTML",
+        "mistralai",
+        "mixtral",
         "mpnet",
         "mult",
         "ollama",
@@ -31,6 +37,8 @@
         "testpaths",
         "tqdm",
         "vectorstore",
-        "vectorstores"
+        "vectorstores",
+        "venv",
+        "wechsel"
     ]
 }
