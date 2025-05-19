@@ -42,17 +42,16 @@ except ImportError:
     SCRAPER_AVAILABLE = False
 
     class NotImported:
+        exc = ModuleNotFoundError(
+            "Selenium dependencies are not installed. "
+            "Please install them using: pip install 'rag-agent[scraper]'"
+        )
+
         def __getattr__(self, item):
-            raise ModuleNotFoundError(
-                "Selenium dependencies are not installed. "
-                "Please install them using: pip install 'rag-agent[scraper]'"
-            )
+            raise self.exc
 
         def __call__(self, *args, **kwargs):
-            raise ModuleNotFoundError(
-                "Selenium dependencies are not installed. "
-                "Please install them using: pip install 'rag-agent[scraper]'"
-            )
+            raise self.exc
 
     globals().update(dict.fromkeys(
         [

@@ -14,17 +14,16 @@ except (ImportError, ModuleNotFoundError):
     PDF_TOOLCHAIN_AVAILABLE = False
 
     class NotImported:
+        exc = ModuleNotFoundError(
+            "PyMuPDF dependencies are not installed. "
+            "Please install them using: pip install 'rag-agent[loaders]'"
+        )
+
         def __getattr__(self, item):
-            raise ModuleNotFoundError(
-                "PyMuPDF dependencies are not installed. "
-                "Please install them using: pip install 'rag-agent[loaders]'"
-            )
+            raise self.exc
 
         def __call__(self, *args, **kwargs):
-            raise ModuleNotFoundError(
-                "PyMuPDF dependencies are not installed. "
-                "Please install them using: pip install 'rag-agent[loaders]'"
-            )
+            raise self.exc
 
     globals().update(dict.fromkeys(
         [
@@ -75,7 +74,7 @@ def merge_pdf_group(args: Tuple[List[Path], Path]) -> None:
     logger.info(f"Created merged PDF: {output_file}")
 
 
-def merge_pdfs_in_directory(
+def merge_pdf_documents_in_directory(
     directory_path: str = os.getcwd(),
     glob_pattern: str = "*.pdf",
     output_dir: str = None,
@@ -139,7 +138,7 @@ def main():
 
     args = parser.parse_args()
     try:
-        merge_pdfs_in_directory(
+        merge_pdf_documents_in_directory(
             directory_path=args.directory,
             glob_pattern=args.pattern,
             output_dir=args.output_dir,

@@ -1,5 +1,5 @@
 from pydantic import Field, field_validator, ValidationError, BaseModel
-from typing import Optional, Literal, Union
+from typing import Optional, Literal, Union, Any
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import re
 import os
@@ -28,7 +28,18 @@ class DocumentSource(BaseModel):
             return re.compile(v) if not isinstance(v, re.Pattern) else v
         except re.error:
             raise ValidationError(f"Invalid regex pattern: {v}")
+        
 
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "source_type": self.source_type,
+            "glob_pattern": self.glob_pattern,
+            "meta_pattern": self.meta_pattern.pattern
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "DocumentSource":
+        return cls(**{k: re.compile(v) if isinstance(v, str) and k == "meta_pattern" else v for k, v in data.items()})
 
 PDF_SOURCE = DocumentSource(
     source_type="pdf",
