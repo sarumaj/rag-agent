@@ -35,6 +35,12 @@ dependencies = [
     "tqdm==4.67.1"
 ]
 
+[project.scripts]
+rag-agent-ui = "rag_agent.ui.__main__:main"
+rag-agent-pipeline = "rag_agent.pipeline.__main__:main"
+rag-agent-scraper-ix = "rag_agent.scrapers.ix.__main__:main"
+rag-agent-pdf-merge = "rag_agent.utils.merge.__main__:main"
+
 [project.optional-dependencies]
 loaders  = [
     "pymupdf==1.25.5",

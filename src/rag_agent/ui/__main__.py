@@ -1,16 +1,49 @@
-import panel as pn
 from typing import Dict, Any, TypedDict, NotRequired
 import traceback
 from itertools import cycle
 import argparse
 import json
+import asyncio
 from datetime import datetime
 from pathlib import Path
 
 from ..pipeline.pipeline import RAGPipeline
-from ..pipeline.config import Settings
+from ..pipeline.config import (
+    Settings,
+    DocumentSource,
+    PDF_SOURCE,
+    MHTML_SOURCE,
+    HTML_SOURCE,
+    TXT_SOURCE,
+)
 
-pn.extension('modal', notifications=True)
+try:
+    import panel as pn
+    UI_FRAMEWORK_AVAILABLE = True
+except (ImportError, ModuleNotFoundError):
+    UI_FRAMEWORK_AVAILABLE = False
+
+    class NotImported:
+        exc = ModuleNotFoundError(
+            "Panel is not installed. "
+            "Please install it using: pip install 'rag-agent[ui]'"
+        )
+
+        def __getattr__(self, item):
+            raise self.exc
+
+        def __call__(self, *args, **kwargs):
+            raise self.exc
+
+    globals().update(dict.fromkeys(
+        [
+            "panel",
+            "pn",
+        ],
+        NotImported()
+    ))
+
+pn.extension('jsoneditor', notifications=True)
 
 
 class ChatWithConfigurableMessages(pn.chat.ChatInterface):
@@ -102,6 +135,10 @@ class RAGChatInterface:
             self.obj = obj
             self.cls = obj
 
+    class SourceConfig(TypedDict):
+        """Source configuration."""
+        sources: pn.widgets.JSONEditor
+
     class EmbeddingConfig(TypedDict):
         """Embedding model configuration."""
         model: pn.widgets.TextInput
@@ -143,6 +180,7 @@ class RAGChatInterface:
 
     class ConfigWidgets(TypedDict):
         """All configuration widgets."""
+        sources: list['RAGChatInterface.SourceConfig']
         embedding: 'RAGChatInterface.EmbeddingConfig'
         text_splitting: 'RAGChatInterface.TextSplittingConfig'
         vector_store: 'RAGChatInterface.VectorStoreConfig'
@@ -151,6 +189,7 @@ class RAGChatInterface:
 
     class ConfigSections(TypedDict):
         """UI sections for configuration."""
+        sources: pn.Column
         embedding: pn.Column
         text_splitting: pn.Column
         vector_store: pn.Column
@@ -168,16 +207,68 @@ class RAGChatInterface:
     def _create_config_widgets(self) -> list[pn.widgets.Widget]:
         """Create the configuration section with widgets for all pipeline settings."""
         widgets: RAGChatInterface.ConfigWidgets = {
+            "sources": {
+                "sources": pn.widgets.JSONEditor(
+                    name="Sources",
+                    value={
+                        k: [
+                            v.as_dict() if isinstance(v, DocumentSource) else v for v in vv
+                        ] for k, vv in self._pipeline_config.pipeline_sources.items()
+                    },
+                    mode="text",
+                    search=False,
+                    menu=False,
+                    sizing_mode="stretch_width",
+                    schema={
+                        "type": "object",
+                        "description": "Sources to be used for the pipeline",
+                        "patternProperties": {
+                            "^.+$": {
+                                "type": "array",
+                                "items": {
+                                    "oneOf": [
+                                        {
+                                            "type": "string",
+                                            "enum": ["pdf", "mhtml", "html", "txt"]
+                                        },
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "source_type": {
+                                                    "type": "string",
+                                                    "enum": ["txt", "pdf", "html"]
+                                                },
+                                                "meta_pattern": {
+                                                    "type": "string",
+                                                    "description": "Regex pattern for extracting metadata from the source path"
+                                                },
+                                                "glob_pattern": {
+                                                    "type": "string",
+                                                    "description": "Glob pattern for matching files in directory"
+                                                }
+                                            },
+                                            "required": ["source_type", "glob_pattern"],
+                                            "additionalProperties": False
+                                        }
+                                    ]
+                                }
+                            }
+                        },
+                        "additionalProperties": False
+                    },
+                ),
+            },
             "embedding": {
                 "model": pn.widgets.TextInput(
                     name="Embedding Model",
                     value=self._pipeline_config.pipeline_embedding_model,
                     placeholder="e.g., all-MiniLM-L6-v2"
                 ),
-                "device": pn.widgets.Select(
+                "device": pn.widgets.AutocompleteInput(
                     name="Embedding Device",
                     value=self._pipeline_config.pipeline_embedding_model_kwargs.get("device", "cuda"),
-                    options=["cuda", "cpu"]
+                    options=["cuda", "cpu", "mps"],
+                    restrict=False,
                 ),
             },
             "text_splitting": {
@@ -266,30 +357,40 @@ class RAGChatInterface:
         }
 
         sections: RAGChatInterface.ConfigSections = {
+            "sources": pn.Column(
+                widgets["sources"]["sources"],
+                pn.layout.Divider(),
+                name="Source Settings"
+            ),
             "embedding": pn.Column(
                 widgets["embedding"]["model"],
                 widgets["embedding"]["device"],
+                pn.layout.Divider(),
                 name="Embedding Model Settings"
             ),
             "text_splitting": pn.Column(
                 widgets["text_splitting"]["chunk_size"],
                 widgets["text_splitting"]["chunk_overlap"],
+                pn.layout.Divider(),
                 name="Text Splitting Settings"
             ),
             "vector_store": pn.Column(
                 widgets["vector_store"]["persist_directory"],
                 widgets["vector_store"]["collection_name"],
+                pn.layout.Divider(),
                 name="Vector Store Settings"
             ),
             "retrieval": pn.Column(
                 widgets["retrieval"]["search_type"],
                 widgets["retrieval"]["k"],
+                pn.layout.Divider(),
                 name="Retrieval Settings"
             ),
             "llm": pn.Column(
                 widgets["llm"]["provider"],
                 widgets["llm"]["model"],
                 widgets["llm"]["temperature"],
+                pn.layout.Divider(),
                 name="LLM Settings"
             ),
         }
@@ -298,7 +399,7 @@ class RAGChatInterface:
             match event.new:
                 case "huggingface":
                     if widgets["llm"]["api_key"] not in sections["llm"]:
-                        sections["llm"].append(widgets["llm"]["api_key"])
+                        sections["llm"].insert(-1, widgets["llm"]["api_key"])
                 case _:
                     if widgets["llm"]["api_key"] in sections["llm"]:
                         sections["llm"].remove(widgets["llm"]["api_key"])
@@ -314,10 +415,10 @@ class RAGChatInterface:
 
             match event.new:
                 case "mmr":
-                    sections["retrieval"].append(widgets["retrieval"]["fetch_k"])
-                    sections["retrieval"].append(widgets["retrieval"]["lambda_mult"])
+                    sections["retrieval"].insert(-1, widgets["retrieval"]["fetch_k"])
+                    sections["retrieval"].insert(-1, widgets["retrieval"]["lambda_mult"])
                 case "similarity_score_threshold":
-                    sections["retrieval"].append(widgets["retrieval"]["score_threshold"])
+                    sections["retrieval"].insert(-1, widgets["retrieval"]["score_threshold"])
 
         update_llm_section(RAGChatInterface.InitialEvent(widgets["llm"]["provider"]))
         update_retrieval_section(RAGChatInterface.InitialEvent(widgets["retrieval"]["search_type"]))
@@ -348,14 +449,28 @@ class RAGChatInterface:
 
     def _apply_config_changes(self, event: Any) -> None:
         """Apply configuration changes and reinitialize the pipeline."""
+        event.obj.disabled = True
         try:
-            embedding_section = self._config_widgets[0]
-            text_splitting_section = self._config_widgets[1]
-            vector_store_section = self._config_widgets[2]
-            retrieval_section = self._config_widgets[3]
-            llm_section = self._config_widgets[4]
+            sources_section = self._config_widgets[0]
+            embedding_section = self._config_widgets[1]
+            text_splitting_section = self._config_widgets[2]
+            vector_store_section = self._config_widgets[3]
+            retrieval_section = self._config_widgets[4]
+            llm_section = self._config_widgets[5]
 
             config_kwargs = {
+                "pipeline_sources": {
+                    k: [
+                        DocumentSource.from_dict(v) if isinstance(v, dict) else
+                        {
+                            "pdf": PDF_SOURCE,
+                            "mhtml": MHTML_SOURCE,
+                            "html": HTML_SOURCE,
+                            "txt": TXT_SOURCE,
+                        }[v] if isinstance(v, str) and v in ["pdf", "mhtml", "html", "txt"] else v
+                        for v in vv
+                    ] for k, vv in sources_section[0].value.items()
+                },
                 "pipeline_embedding_model": embedding_section[0].value,
                 "pipeline_embedding_model_kwargs": {"device": embedding_section[1].value},
                 "pipeline_chunk_size": text_splitting_section[0].value,
@@ -382,11 +497,17 @@ class RAGChatInterface:
 
             self._pipeline_config = Settings(**config_kwargs)
             self._pipeline = None
+            asyncio.run(self._initialize_pipeline())
 
         except Exception as e:
-            pn.state.notifications.error(f"Error applying configuration: {str(e)}", duration=10000)
+            pn.state.notifications.error(
+                f"Error applying configuration: {str(e)}\n\n{traceback.format_exc()}",
+                duration=10000
+            )
         else:
             pn.state.notifications.success("Configuration applied successfully!", duration=3000)
+        finally:
+            event.obj.disabled = False
 
     async def _initialize_pipeline(self) -> None:
         """Initialize the RAG pipeline."""
@@ -479,12 +600,13 @@ class RAGChatInterface:
             title="RAG Agent Chat Interface",
             main=[self._chat_interface],
             sidebar=[
-                *self._config_widgets[:-2],
-                pn.layout.Divider(),
-                self._config_widgets[-2],
-                pn.layout.Row(
-                    pn.layout.HSpacer(),
-                    self._config_widgets[-1],
+                pn.layout.Column(
+                    *self._config_widgets[:-2],
+                    self._config_widgets[-2],
+                    pn.layout.Row(
+                        pn.layout.HSpacer(),
+                        self._config_widgets[-1],
+                    ),
                 )
             ],
             sidebar_width=350,

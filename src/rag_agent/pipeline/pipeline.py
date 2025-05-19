@@ -32,17 +32,16 @@ except (ImportError, ModuleNotFoundError):
     LOADERS_AVAILABLE = False
 
     class NotImported:
+        exc = ModuleNotFoundError(
+            "Loader dependencies are not installed. "
+            "Please install them using: pip install 'rag-agent[loaders]'"
+        )
+
         def __getattr__(self, item):
-            raise ModuleNotFoundError(
-                "Loader dependencies are not installed. "
-                "Please install them using: pip install 'rag-agent[loaders]'"
-            )
+            raise self.exc
 
         def __call__(self, *args, **kwargs):
-            raise ModuleNotFoundError(
-                "Loader dependencies are not installed. "
-                "Please install them using: pip install 'rag-agent[loaders]'"
-            )
+            raise self.exc
 
     globals().update(dict.fromkeys(
         [
@@ -253,16 +252,16 @@ class RAGPipeline:
 
         retrieval_settings = {
             "search_type": self._config.pipeline_search_type,
-            "k": self._config.pipeline_k,
+            "search_kwargs": {"k": self._config.pipeline_k},
         }
 
         match self._config.pipeline_search_type:
             case "similarity":
                 pass
             case "similarity_score_threshold":
-                retrieval_settings["score_threshold"] = self._config.pipeline_score_threshold
+                retrieval_settings["search_kwargs"]["score_threshold"] = self._config.pipeline_score_threshold
             case "mmr":
-                retrieval_settings.update({
+                retrieval_settings["search_kwargs"].update({
                     "fetch_k": self._config.pipeline_fetch_k,
                     "lambda_mult": self._config.pipeline_lambda_mult
                 })
