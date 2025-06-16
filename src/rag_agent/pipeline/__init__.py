@@ -1,4 +1,9 @@
-from .config import Settings as RAGPipelineConfig
-from .pipeline import RAGPipeline
+from .base import BaseRAGPipeline, PipelineSettings as BasePipelineSettings
+from .chroma import ChromaRAGPipeline, ChromaRAGPipelineConfig
 
-__all__ = [k for k, v in globals().items() if v in (RAGPipeline, RAGPipelineConfig)]
+__all__ = [k for k, v in globals().items() if v in (
+    BaseRAGPipeline,
+    BasePipelineSettings,
+    ChromaRAGPipeline,
+    ChromaRAGPipelineConfig
+)]

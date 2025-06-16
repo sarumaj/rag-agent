@@ -5,6 +5,7 @@ from asyncio import create_task, gather
 import asyncio
 import re
 import logging
+import signal
 
 from .scraper import IXScraper
 
@@ -18,6 +19,36 @@ logger = logging.getLogger("rag_agent.scrapers.ix")
 
 
 class IXDownloader(IXScraper):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._shutdown_event = asyncio.Event()
+        self._setup_signal_handlers()
+
+    def _setup_signal_handlers(self):
+        """Set up signal handlers for graceful shutdown."""
+        loop = asyncio.get_event_loop()
+
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(
+                sig,
+                lambda s=sig: asyncio.create_task(self._handle_shutdown(s))
+            )
+
+    async def _handle_shutdown(self, sig: signal.Signals):
+        """Handle shutdown signals gracefully."""
+        logger.info(f"Received signal {sig.name}, initiating graceful shutdown...")
+        self._shutdown_event.set()
+
+        for task in self._running_tasks:
+            if not task.done():
+                task.cancel()
+
+        if self._running_tasks:
+            await asyncio.gather(*self._running_tasks, return_exceptions=True)
+
+        logger.info("Shutdown complete")
+        await self._cleanup()
+
     async def _download_archive(self):
         """Download the entire archive hierarchy."""
         await self._initialize_drivers()
@@ -98,31 +129,44 @@ class IXDownloader(IXScraper):
                     async for chunk in response.content.iter_chunked(8192):
                         f.write(chunk)
 
-            download_url = None
-            while download_url is None:
-                logger.debug(f"Downloading article {link}")
-                parts = tuple(filter(None, re.split(r"\D+/?", link)))
-                if len(parts) != 2:
-                    logger.error(f"Invalid article URL: {link}")
-                    continue
+            logger.debug(f"Downloading article {link}")
+            parts = tuple(filter(None, re.split(r"\D+/?", link)))
+            if len(parts) != 2:
+                logger.error(f"Invalid article URL: {link}")
+                continue
 
-                issue_year, issue_number = parts
-                file_name = f"ix.{issue_year[-2:]}.{int(issue_number):02d}.pdf"
-                async with session.get(f"{self._config.ix_scraper_base_url}{link}") as response:
-                    try:
-                        response.raise_for_status()
-                    except Exception as e:
-                        logger.error(f"Error downloading article {link}: {e}")
-                        return
+            issue_year, issue_number = parts
+            file_name = f"ix.{issue_year[-2:]}.{int(issue_number):02d}.pdf"
+            async with session.get(
+                f"{self._config.ix_scraper_base_url}{link}",
+                headers={"Accept": (
+                    "application/pdf,"
+                    "binary/octet-stream,"
+                    "*/*"
+                )}
+            ) as response:
+                try:
+                    response.raise_for_status()
+                except Exception as e:
+                    logger.error(f"Error downloading article {link}: {e}")
+                    return
 
-                    match response.content_type:
-                        case "binary/octet-stream":
-                            await save(self._config.ix_scraper_output_dir / issue_year / file_name, response)
-                            return
+                match response.content_type:
+                    case "binary/octet-stream":
+                        await save(self._config.ix_scraper_output_dir / issue_year / file_name, response)
 
-                        case _:
-                            logger.error(f"Unexpected content type: {response.content_type}")
-                            return
+                    case _:
+                        content = await response.text()
+                        logger.error(
+                            "Unexpected content type: {content_type}, link: {link}, "
+                            "headers: {headers}, content: {content}"
+                            .format(
+                                content_type=response.content_type,
+                                link=f"{self._config.ix_scraper_base_url}{link}",
+                                headers=response.headers,
+                                content=content[:100] + "..." if len(content) > 100 else content
+                            )
+                        )
 
     async def run(self):
         """Run the downloader."""

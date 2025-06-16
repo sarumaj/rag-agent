@@ -90,7 +90,7 @@ class Settings(BaseSettings):
         repr=False
     )
     ix_scraper_webdriver_options: list[str] = Field(default_factory=lambda: [
-        '--headless',
+        # '--headless',
         '--disable-dev-shm-usage',
         '--kiosk-printing',
         '--force-color-profile=srgb',

@@ -21,6 +21,7 @@ import json
 import nest_asyncio
 
 from .config import Settings
+from ..base import BaseRAGPipeline
 
 try:
     from importlib import import_module
@@ -61,8 +62,8 @@ logging.basicConfig(
 logger = logging.getLogger("rag_agent.pipeline")
 
 
-class RAGPipeline:
-    """RAG pipeline implementation using LangChain."""
+class ChromaRAGPipeline(BaseRAGPipeline):
+    """RAG pipeline implementation using ChromaDB."""
 
     def __init__(self, config: Optional[Settings] = None):
         """Initialize the RAG pipeline.
@@ -70,8 +71,8 @@ class RAGPipeline:
         Args:
             config: Optional configuration object. If not provided, defaults will be used.
         """
-        self._config = config or Settings()
-        logger.info(f"Initializing RAG pipeline with config: {self._config.model_dump_json(indent=2)}")
+        super().__init__(config=config or Settings())
+        logger.info(f"Initializing ChromaDB RAG pipeline with config: {self._config.model_dump_json(indent=2)}")
 
         try:
             self._loop = asyncio.get_event_loop()

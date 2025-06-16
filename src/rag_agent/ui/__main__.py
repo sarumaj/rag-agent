@@ -8,9 +8,9 @@ from datetime import datetime
 from pathlib import Path
 import logging
 
-from ..pipeline.pipeline import RAGPipeline
+from ..pipeline.base import BaseRAGPipeline
+from ..pipeline.chroma import ChromaRAGPipeline, ChromaRAGPipelineConfig
 from ..pipeline.config import (
-    Settings,
     DocumentSource,
     PDF_SOURCE,
     MHTML_SOURCE,
@@ -177,8 +177,16 @@ class RAGChatInterface:
 
     class VectorStoreConfig(TypedDict):
         """Vector store configuration."""
+        vector_store: pn.widgets.Select
         persist_directory: pn.widgets.TextInput
         collection_name: pn.widgets.TextInput
+        video_path: pn.widgets.TextInput
+        index_path: pn.widgets.TextInput
+        fps: pn.widgets.IntInput
+        frame_size: pn.widgets.IntInput
+        video_codec: pn.widgets.TextInput
+        crf: pn.widgets.IntInput
+        n_workers: pn.widgets.IntInput
 
     class RetrievalConfig(TypedDict):
         """Retrieval configuration.
@@ -221,11 +229,11 @@ class RAGChatInterface:
         retrieval: pn.Column
         llm: pn.Column
 
-    def __init__(self, terminal: pn.widgets.Terminal = TERMINAL):
+    def __init__(self, config: Any, terminal: pn.widgets.Terminal = TERMINAL):
         self._terminal = terminal
-        self._pipeline: RAGPipeline | None = None
+        self._pipeline: BaseRAGPipeline | None = None
         self._reload_documents = False
-        self._pipeline_config = Settings()
+        self._pipeline_config: Any = config
         self._config_widgets = self._create_config_widgets()
         self._chat_interface = self._create_chat_interface()
         self._layout = self._create_layout()
@@ -239,7 +247,7 @@ class RAGChatInterface:
                     value={
                         k: [
                             v.as_dict() if isinstance(v, DocumentSource) else v for v in vv
-                        ] for k, vv in self._pipeline_config.pipeline_sources.items()
+                        ] for k, vv in getattr(self._pipeline_config, "pipeline_sources", {}).items()
                     },
                     mode="tree",
                     search=False,
@@ -288,12 +296,12 @@ class RAGChatInterface:
                 ),
                 "model": pn.widgets.TextInput(
                     name="Embedding Model",
-                    value=self._pipeline_config.pipeline_embedding_model,
+                    value=getattr(self._pipeline_config, "pipeline_embedding_model", ""),
                     placeholder="e.g., all-MiniLM-L6-v2"
                 ),
                 "device": pn.widgets.AutocompleteInput(
                     name="Embedding Device",
-                    value=self._pipeline_config.pipeline_embedding_model_kwargs.get("device", "cuda"),
+                    value=getattr(self._pipeline_config, "pipeline_embedding_model_kwargs", {}).get("device", "cuda"),
                     options=["cuda", "cpu", "mps"],
                     restrict=False,
                 ),
@@ -301,57 +309,62 @@ class RAGChatInterface:
             "text_splitting": {
                 "chunk_size": pn.widgets.IntInput(
                     name="Chunk Size",
-                    value=self._pipeline_config.pipeline_chunk_size,
+                    value=getattr(self._pipeline_config, "pipeline_chunk_size", 0),
                     start=100,
                     step=100
                 ),
                 "chunk_overlap": pn.widgets.IntInput(
                     name="Chunk Overlap",
-                    value=self._pipeline_config.pipeline_chunk_overlap,
+                    value=getattr(self._pipeline_config, "pipeline_chunk_overlap", 0),
                     start=0,
                     step=50
                 ),
             },
             "vector_store": {
+                "vector_store": pn.widgets.Select(
+                    name="Vector Store",
+                    value="chroma",
+                    options=["chroma"]
+                ),
                 "persist_directory": pn.widgets.TextInput(
                     name="Persist Directory",
-                    value=self._pipeline_config.pipeline_persist_directory,
+                    value=getattr(self._pipeline_config, "pipeline_persist_directory", ""),
                     placeholder="e.g., chroma_db"
                 ),
                 "collection_name": pn.widgets.TextInput(
                     name="Collection Name",
-                    value=self._pipeline_config.pipeline_collection_name,
+                    value=getattr(self._pipeline_config, "pipeline_collection_name", ""),
                     placeholder="e.g., default_collection"
-                ),
+                )
             },
             "retrieval": {
                 "search_type": pn.widgets.Select(
                     name="Search Type",
-                    value=self._pipeline_config.pipeline_search_type,
+                    value=getattr(self._pipeline_config, "pipeline_search_type", ""),
                     options=["similarity", "mmr", "similarity_score_threshold"]
                 ),
                 "k": pn.widgets.IntInput(
                     name="Number of Documents (k)",
-                    value=self._pipeline_config.pipeline_k,
+                    value=getattr(self._pipeline_config, "pipeline_k", 0),
                     start=1,
                     step=1
                 ),
                 "score_threshold": pn.widgets.FloatInput(
                     name="Score Threshold",
-                    value=self._pipeline_config.pipeline_score_threshold or 0.5,
+                    value=getattr(self._pipeline_config, "pipeline_score_threshold", 0) or 0.5,
                     start=0.0,
                     end=1.0,
                     step=0.1
                 ),
                 "fetch_k": pn.widgets.IntInput(
                     name="Fetch k",
-                    value=self._pipeline_config.pipeline_fetch_k or 20,
+                    value=getattr(self._pipeline_config, "pipeline_fetch_k", 0) or 20,
                     start=1,
                     step=1
                 ),
                 "lambda_mult": pn.widgets.FloatInput(
                     name="Lambda Multiplier",
-                    value=self._pipeline_config.pipeline_lambda_mult or 0.5,
+                    value=getattr(self._pipeline_config, "pipeline_lambda_mult", 0) or 0.5,
                     start=0.0,
                     end=1.0,
                     step=0.1
@@ -360,24 +373,24 @@ class RAGChatInterface:
             "llm": {
                 "provider": pn.widgets.Select(
                     name="LLM Provider",
-                    value=self._pipeline_config.pipeline_llm_provider,
+                    value=getattr(self._pipeline_config, "pipeline_llm_provider", ""),
                     options=["ollama", "huggingface"]
                 ),
                 "model": pn.widgets.TextInput(
                     name="LLM Model",
-                    value=self._pipeline_config.pipeline_llm_model,
+                    value=getattr(self._pipeline_config, "pipeline_llm_model", ""),
                     placeholder="e.g., mistral"
                 ),
                 "temperature": pn.widgets.FloatInput(
                     name="Temperature",
-                    value=self._pipeline_config.pipeline_llm_model_kwargs.get("temperature", 0.3),
+                    value=getattr(self._pipeline_config, "pipeline_llm_model_kwargs", {}).get("temperature", 0.3),
                     start=0.0,
                     end=1.0,
                     step=0.1
                 ),
                 "api_key": pn.widgets.PasswordInput(
                     name="API Key",
-                    value=self._pipeline_config.pipeline_llm_api_key or "",
+                    value=getattr(self._pipeline_config, "pipeline_llm_api_key", "") or "",
                     placeholder="Enter API key for Hugging Face"
                 ),
             },
@@ -396,8 +409,7 @@ class RAGChatInterface:
                 name="Text Splitting Settings"
             ),
             "vector_store": pn.Column(
-                widgets["vector_store"]["persist_directory"],
-                widgets["vector_store"]["collection_name"],
+                widgets["vector_store"]["vector_store"],
                 name="Vector Store Settings"
             ),
             "retrieval": pn.Column(
@@ -438,11 +450,26 @@ class RAGChatInterface:
                 case "similarity_score_threshold":
                     sections["retrieval"].append(widgets["retrieval"]["score_threshold"])
 
+        def update_vector_store_section(event: Any):
+            """Update vector store section based on selected implementation."""
+            # Remove all existing widgets except the selector
+            for widget in widgets["vector_store"].values():
+                if widget != widgets["vector_store"]["vector_store"] and widget in sections["vector_store"]:
+                    sections["vector_store"].remove(widget)
+
+            # Add relevant widgets based on selection
+            match event.new:
+                case "chroma":
+                    sections["vector_store"].append(widgets["vector_store"]["persist_directory"])
+                    sections["vector_store"].append(widgets["vector_store"]["collection_name"])
+
         update_llm_section(RAGChatInterface.InitialEvent(widgets["llm"]["provider"]))
         update_retrieval_section(RAGChatInterface.InitialEvent(widgets["retrieval"]["search_type"]))
+        update_vector_store_section(RAGChatInterface.InitialEvent(widgets["vector_store"]["vector_store"]))
 
         widgets["llm"]["provider"].param.watch(update_llm_section, "value")
         widgets["retrieval"]["search_type"].param.watch(update_retrieval_section, "value")
+        widgets["vector_store"]["vector_store"].param.watch(update_vector_store_section, "value")
 
         reload_documents_checkbox = pn.widgets.Checkbox(
             name="Reload Documents",
@@ -500,8 +527,7 @@ class RAGChatInterface:
                 "pipeline_embedding_model_kwargs": {"device": embedding_section[2].value},
                 "pipeline_chunk_size": text_splitting_section[0].value,
                 "pipeline_chunk_overlap": text_splitting_section[1].value,
-                "pipeline_persist_directory": vector_store_section[0].value,
-                "pipeline_collection_name": vector_store_section[1].value,
+                "pipeline_vector_store": vector_store_section[0].value,
                 "pipeline_search_type": retrieval_section[0].value,
                 "pipeline_k": retrieval_section[1].value,
                 "pipeline_llm_provider": llm_section[0].value,
@@ -520,7 +546,14 @@ class RAGChatInterface:
                 case "huggingface":
                     config_kwargs["pipeline_llm_api_key"] = llm_section[3].value
 
-            self._pipeline_config = Settings(**config_kwargs)
+            match vector_store_section[0].value:
+                case "chroma":
+                    config_kwargs["pipeline_persist_directory"] = vector_store_section[1].value
+                    config_kwargs["pipeline_collection_name"] = vector_store_section[2].value
+                    self._pipeline_config = ChromaRAGPipelineConfig(**config_kwargs)
+                case _:
+                    raise ValueError(f"Unsupported vector store: {vector_store_section[0].value}")
+
             self._pipeline = None
             asyncio.run(self._initialize_pipeline())
 
@@ -538,7 +571,10 @@ class RAGChatInterface:
     async def _initialize_pipeline(self) -> None:
         """Initialize the RAG pipeline."""
         if self._pipeline is None:
-            self._pipeline = RAGPipeline(config=self._pipeline_config)
+            if isinstance(self._pipeline_config, ChromaRAGPipelineConfig):
+                self._pipeline = ChromaRAGPipeline(config=self._pipeline_config)
+            else:
+                raise ValueError(f"Unsupported vector store: {self._pipeline_config.pipeline_vector_store}")
 
             if self._reload_documents:
                 documents = await self._pipeline.load_documents()
@@ -671,9 +707,22 @@ def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description="RAG Chat Interface")
     parser.add_argument("--port", type=int, default=8501, help="Port to serve the application on")
+    parser.add_argument(
+        "--database-engine",
+        type=str,
+        default="chroma",
+        help="Database engine to use",
+        choices=["chroma"]
+    )
     args = parser.parse_args()
 
-    chat = RAGChatInterface()
+    match args.database_engine:
+        case "chroma":
+            config = ChromaRAGPipelineConfig()
+        case _:
+            raise ValueError(f"Unsupported database engine: {args.db_engine}")
+
+    chat = RAGChatInterface(config=config)
     chat.serve(port=args.port)
 
 

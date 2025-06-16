@@ -28,7 +28,6 @@ class DocumentSource(BaseModel):
             return re.compile(v) if not isinstance(v, re.Pattern) else v
         except re.error:
             raise ValidationError(f"Invalid regex pattern: {v}")
-        
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -40,6 +39,7 @@ class DocumentSource(BaseModel):
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "DocumentSource":
         return cls(**{k: re.compile(v) if isinstance(v, str) and k == "meta_pattern" else v for k, v in data.items()})
+
 
 PDF_SOURCE = DocumentSource(
     source_type="pdf",
@@ -62,8 +62,9 @@ HTML_SOURCE = DocumentSource(
 )
 
 
-class Settings(BaseSettings):
-    """Configuration for RAGPipeline."""
+class PipelineSettings(BaseSettings):
+    """Configuration settings for the RAG pipeline."""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -103,18 +104,6 @@ class Settings(BaseSettings):
         default=200,
         ge=0,
         description="Overlap between chunks"
-    )
-
-    # Vector store settings
-    pipeline_persist_directory: str = Field(
-        default="chroma_db",
-        description="Directory to store the vector database"
-    )
-    pipeline_collection_name: str = Field(
-        default="default_collection",
-        description="Name of the ChromaDB collection to use",
-        min_length=3,
-        max_length=512
     )
 
     # Retrieval settings
