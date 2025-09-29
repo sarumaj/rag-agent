@@ -20,7 +20,7 @@ classifiers = [
 dependencies = [
     "aiohttp==3.12.15",
     "asyncio==4.0.0",
-    "beautifulsoup4==4.13.5",
+    "beautifulsoup4==4.14.2",
     "langchain==0.3.27",
     "langchain-chroma==0.2.6",
     "langchain-community==0.3.29",
