@@ -47,7 +47,7 @@ loaders  = [
     "unstructured==0.18.15"
 ]
 scraper = [
-    "selenium==4.35.0",
+    "selenium==4.38.0",
     "webdriver_manager==4.0.2"
 ]
 test = [
