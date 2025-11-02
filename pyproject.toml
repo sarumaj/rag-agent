@@ -21,7 +21,7 @@ dependencies = [
     "aiohttp==3.13.2",
     "asyncio==4.0.0",
     "beautifulsoup4==4.14.2",
-    "langchain==0.3.27",
+    "langchain==1.0.3",
     "langchain-chroma==0.2.6",
     "langchain-community==0.4.1",
     "langchain-core==0.3.76",
