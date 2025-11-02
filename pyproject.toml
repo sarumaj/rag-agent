@@ -18,7 +18,7 @@ classifiers = [
     "Operating System :: OS Independent"
 ]
 dependencies = [
-    "aiohttp==3.12.15",
+    "aiohttp==3.13.2",
     "asyncio==4.0.0",
     "beautifulsoup4==4.14.2",
     "langchain==0.3.27",
