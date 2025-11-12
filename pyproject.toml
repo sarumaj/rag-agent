@@ -51,7 +51,7 @@ scraper = [
     "webdriver_manager==4.0.2"
 ]
 test = [
-    "pytest==8.4.2",
+    "pytest==9.0.1",
     "pytest-asyncio==1.3.0"
 ]
 ui = [
