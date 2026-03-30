@@ -28,7 +28,7 @@ dependencies = [
     "langchain-huggingface==1.2.0",
     "langchain-ollama==1.0.1",
     "langchain-text-splitters==1.1.0",
-    "langgraph==1.0.8",
+    "langgraph==1.0.10",
     "nest-asyncio==1.6.0",
     "pydantic==2.12.5",
     "pydantic-settings==2.12.0",
