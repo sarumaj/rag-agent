@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "rag-agent"
 version = "0.0.0"
 description = "RAG (Retrieval-Augmented Generation) pipeline implementation"
-requires-python = ">=3.12"
+requires-python = ">=3.11,<3.12"
 authors = [
     { name="Dawid Ciepiela", email="71898979+sarumaj@users.noreply.github.com" }
 ]
