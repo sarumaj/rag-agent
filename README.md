@@ -1,5 +1,5 @@
-[![release](https://github.com/sarumaj/rag-agent/actions/workflows/release.yml/badge.svg)](https://github.com/sarumaj/rag-agent/actions/workflows/release.yml)
-[![GitHub Release](https://img.shields.io/github/v/release/sarumaj/rag-agent?logo=github)](https://github.com/sarumaj/rag-agent/releases/latest)
+[![test](https://git.ciepiela.org/dawid/rag-agent/actions/workflows/test.yml/badge.svg)](https://git.ciepiela.org/dawid/rag-agent/actions?workflow=test.yml)
+[![Release](https://img.shields.io/gitea/v/release/dawid/rag-agent?gitea_url=https%3A%2F%2Fgit.ciepiela.org&logo=forgejo)](https://git.ciepiela.org/dawid/rag-agent/releases/latest)
 [![Libraries.io dependency status for GitHub repo](https://img.shields.io/librariesio/github/sarumaj/rag-agent)](https://github.com/sarumaj/rag-agent/blob/main/pyproject.toml)
 
 ---
