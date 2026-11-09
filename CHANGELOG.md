@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file. The release bot
 writes each version's section from the commits (Conventional Commits) and the hand-written
 Unreleased section.
 
+## 0.3.2 - 2026-11-09
+
+### Dependencies
+
+- update all patch dependencies
+- a consistent langchain 0.3 set: langchain-core 0.3.86 and langchain-text-splitters 0.3.11, which langchain 0.3.30 needs, and langchain-community 0.3.31 (0.4 needs langchain-core 1.x); pydantic-settings 2.10.1 and pytest 8.4.2 for them and pytest-asyncio; langchain-huggingface[full], whose 0.3 moved sentence-transformers into that extra
+
 ## 0.3.1 - 2026-11-09
 
 ### Dependencies
