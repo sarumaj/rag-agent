@@ -7,7 +7,7 @@ from langchain_community.document_loaders import (
     PyMuPDFLoader,
     UnstructuredHTMLLoader,
 )
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.graph import START, StateGraph
 from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate
