@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file. The release bot
 writes each version's section from the commits (Conventional Commits) and the hand-written
 Unreleased section.
 
+## 0.3.3 - 2026-11-16
+
+### Dependencies
+
+- update security fixes [security] (major) (#112)
+
 ## 0.3.2 - 2026-11-09
 
 ### Dependencies
