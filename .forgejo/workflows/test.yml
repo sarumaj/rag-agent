@@ -21,7 +21,7 @@ jobs:
       with:
         python-version: '3.12'
     - name: Cache pip packages
-      uses: https://github.com/actions/cache@v4
+      uses: https://github.com/actions/cache@v6
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
