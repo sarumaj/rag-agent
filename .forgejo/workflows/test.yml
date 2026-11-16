@@ -19,7 +19,7 @@ jobs:
     - name: Set up Python
       uses: https://github.com/actions/setup-python@v5
       with:
-        python-version: '3.12'
+        python-version: '3.15'
     - name: Cache pip packages
       uses: https://github.com/actions/cache@v4
       with:
