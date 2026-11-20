@@ -1,0 +1,2 @@
+# The README's pictures, in Git LFS (only there).
+doc/*.png filter=lfs diff=lfs merge=lfs -text
