@@ -36,7 +36,7 @@ jobs:
       # Below 3.14, which unstructured (the extra loaders) does not support yet: renovate.json
       # keeps Renovate from raising it further.
       with:
-        python-version: '3.12'
+        python-version: '3.13'
     - name: Extract version from tag
       id: version
       run: |
