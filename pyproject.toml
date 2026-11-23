@@ -43,7 +43,7 @@ rag-agent-pdf-merge = "rag_agent.utils.merge.__main__:main"
 
 [project.optional-dependencies]
 loaders  = [
-    "pymupdf==1.25.5",
+    "pymupdf==2.1",
     "unstructured==0.24.0"
 ]
 scraper = [
