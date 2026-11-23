@@ -18,6 +18,8 @@ jobs:
       uses: https://github.com/actions/checkout@v4
     - name: Set up Python
       uses: https://github.com/actions/setup-python@v5
+      # Below 3.14, which unstructured (the extra loaders) does not support yet: renovate.json
+      # keeps Renovate from raising it further.
       with:
         python-version: '3.12'
     - name: Cache pip packages

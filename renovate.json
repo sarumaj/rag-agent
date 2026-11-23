@@ -2,5 +2,13 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "local>dawid/renovate-config"
+  ],
+  "packageRules": [
+    {
+      "description": "The Python of CI (setup-python's python-version in test.yml and release.yml) stays below 3.14: unstructured (the extra loaders) requires Python <3.14 in every release since 0.20.2 (0.24.0 too, up to 0.27.37 of 2026-11-06), so pip finds no unstructured on a newer Python. Remove this rule once a release of unstructured allows 3.14 or later",
+      "matchManagers": ["github-actions"],
+      "matchDepNames": ["python"],
+      "allowedVersions": "<3.14"
+    }
   ]
 }
