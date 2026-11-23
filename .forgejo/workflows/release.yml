@@ -32,7 +32,7 @@ jobs:
         ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
         fetch-depth: 0
     - name: Set up Python
-      uses: https://github.com/actions/setup-python@v5
+      uses: https://github.com/actions/setup-python@v7
       # Below 3.14, which unstructured (the extra loaders) does not support yet: renovate.json
       # keeps Renovate from raising it further.
       with:
