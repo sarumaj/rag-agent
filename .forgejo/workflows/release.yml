@@ -27,7 +27,7 @@ jobs:
           *) echo "::error::$TAG is not a release tag: name one in the tag field"; exit 1 ;;
         esac
     - name: Checkout
-      uses: https://github.com/actions/checkout@v4
+      uses: https://github.com/actions/checkout@v7
       with:
         ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
         fetch-depth: 0
